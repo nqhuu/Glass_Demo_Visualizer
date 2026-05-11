@@ -1,0 +1,15 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* VI: Thiet lap nen va font mac dinh gon nhe cho giao dien noi bo. */
+:root {
+  font-family:
+    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: #171717;
+  background: #fafaf9;
+}
+
+body {
+  margin: 0;
+}
