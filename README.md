@@ -103,6 +103,24 @@ Auth endpoints added in Sprint 1:
 - `GET /api/auth/me`
 - `GET /api/auth/admin-example`
 
+## Sprint 3 local glass catalog
+
+Admin catalog endpoints added in Sprint 3:
+
+- `GET /api/admin/glass-categories`
+- `POST /api/admin/glass-categories`
+- `PATCH /api/admin/glass-categories/:id`
+- `DELETE /api/admin/glass-categories/:id`
+- `GET /api/admin/glass-products`
+- `POST /api/admin/glass-products`
+- `PATCH /api/admin/glass-products/:id`
+- `DELETE /api/admin/glass-products/:id`
+
+Active catalog endpoints for later editor use:
+
+- `GET /api/glass-categories`
+- `GET /api/glass-products`
+
 ## Files Codex must read
 
 Before coding, Codex must read:
