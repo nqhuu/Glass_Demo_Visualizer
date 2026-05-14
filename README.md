@@ -48,6 +48,7 @@ npm install
 Create local env files:
 
 ```bash
+cp .env.example .env
 cp apps/web/.env.example apps/web/.env
 cp apps/api/.env.example apps/api/.env
 ```
@@ -83,6 +84,24 @@ npm run build
 - Frontend: `http://localhost:5173`
 - Backend health check: `http://localhost:3000/api/health`
 - MySQL: `localhost:3306`
+
+## Sprint 1 local authentication
+
+The backend seeds one local admin when these API env values are present:
+
+```text
+SEED_ADMIN_NAME
+SEED_ADMIN_EMAIL
+SEED_ADMIN_PASSWORD
+```
+
+Default local example values are listed in `apps/api/.env.example`. Change them before shared team use.
+
+Auth endpoints added in Sprint 1:
+
+- `POST /api/auth/login`
+- `GET /api/auth/me`
+- `GET /api/auth/admin-example`
 
 ## Files Codex must read
 

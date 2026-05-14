@@ -17,6 +17,8 @@
     "@nestjs/passport": "^10.0.3",
     "@nestjs/platform-express": "^10.4.6",
     "@nestjs/typeorm": "^10.0.2",
+    "@types/bcrypt": "^6.0.0",
+    "bcrypt": "^6.0.0",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.1",
     "mysql2": "^3.11.3",

@@ -10,7 +10,8 @@ export function createTypeOrmOptions(): TypeOrmModuleOptions {
     password: process.env.DATABASE_PASSWORD ?? '',
     database: process.env.DATABASE_NAME ?? 'glass_demo_visualizer',
     entities: [],
-    synchronize: false,
+    // VI: Chi bat synchronize khi local dev chu dong cau hinh; production khong nen tu dong sua schema.
+    synchronize: process.env.DATABASE_SYNCHRONIZE === 'true',
     autoLoadEntities: true,
   };
 }

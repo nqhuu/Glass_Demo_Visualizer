@@ -5,6 +5,7 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AuthModule } from './auth/auth.module';
 import { createTypeOrmOptions } from './config/typeorm.config';
+import { UsersModule } from './users/users.module';
 
 // VI: Module goc ket noi config, database va cac module nen tang cua backend.
 @Module({
@@ -16,6 +17,7 @@ import { createTypeOrmOptions } from './config/typeorm.config';
     TypeOrmModule.forRootAsync({
       useFactory: createTypeOrmOptions,
     }),
+    UsersModule,
     AuthModule,
   ],
   controllers: [AppController],

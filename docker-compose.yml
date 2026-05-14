@@ -4,10 +4,10 @@ services:
     container_name: glass-demo-visualizer-mysql
     restart: unless-stopped
     environment:
-      MYSQL_DATABASE: glass_demo_visualizer
-      MYSQL_USER: glass_app
-      MYSQL_PASSWORD: glass_app_password
-      MYSQL_ROOT_PASSWORD: root_password
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-glass_demo_visualizer}
+      MYSQL_USER: ${MYSQL_USER:-glass_app}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-glass_app_password}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root_password}
     ports:
       - "3306:3306"
     volumes:
