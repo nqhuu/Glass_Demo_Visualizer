@@ -57,6 +57,18 @@ export interface ProjectImagePayload {
   sortOrder: number;
 }
 
+export interface ProjectImageUploadPayload {
+  file: File;
+  title?: string;
+  description?: string;
+  sortOrder?: number;
+}
+
+export interface ProjectImageUploadDraft {
+  payload: ProjectImageUploadPayload | null;
+  errorKey: string | null;
+}
+
 export interface ProjectQuery {
   search?: string;
   status?: ProjectStatus | 'all';

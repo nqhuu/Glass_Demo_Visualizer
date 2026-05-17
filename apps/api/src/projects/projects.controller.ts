@@ -1,4 +1,5 @@
-import { Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post, Query, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { JwtPayload } from '../auth/auth.types';
@@ -7,7 +8,9 @@ import { CreateProjectDto } from './dto/create-project.dto';
 import { ListProjectsDto } from './dto/list-projects.dto';
 import { UpdateProjectImageDto } from './dto/update-project-image.dto';
 import { UpdateProjectDto } from './dto/update-project.dto';
+import { UploadProjectImageDto } from './dto/upload-project-image.dto';
 import { ProjectsService } from './projects.service';
+import { UploadedProjectFile } from './uploaded-project-file.type';
 
 // VI: Controller du an/anh du an duoc bao ve JWT va dua ownership check xuong service.
 @Controller('projects')
@@ -48,6 +51,18 @@ export class ProjectsController {
   @Post(':projectId/images')
   createImage(@CurrentUser() user: JwtPayload, @Param('projectId', ParseIntPipe) projectId: number, @Body() dto: CreateProjectImageDto) {
     return this.projectsService.createImage(user, projectId, dto);
+  }
+
+  @Post(':projectId/images/upload')
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 10 * 1024 * 1024 } }))
+  // VI: Upload anh that cho du an; service se validate file va ownership truoc khi luu metadata.
+  uploadImage(
+    @CurrentUser() user: JwtPayload,
+    @Param('projectId', ParseIntPipe) projectId: number,
+    @UploadedFile() file: UploadedProjectFile | undefined,
+    @Body() dto: UploadProjectImageDto,
+  ) {
+    return this.projectsService.uploadImage(user, projectId, file, dto);
   }
 
   @Patch(':projectId/images/:imageId')

@@ -5,9 +5,9 @@ import { Link, useParams } from 'react-router-dom';
 import { useAuth } from '../auth/use-auth';
 import { PageHeader } from '../components/PageHeader';
 import { ShellCard } from '../components/ShellCard';
-import { ProjectImageForm } from '../projects/ProjectForm';
-import { createProjectImage, deleteProjectImage, getProject, listProjectImages, updateProjectImage } from '../projects/project-api';
-import type { Project, ProjectImage, ProjectImagePayload } from '../projects/project.types';
+import { ProjectImageForm, ProjectImageUploadForm } from '../projects/ProjectForm';
+import { createProjectImage, deleteProjectImage, getProject, listProjectImages, resolveProjectImageUrl, updateProjectImage, uploadProjectImage } from '../projects/project-api';
+import type { Project, ProjectImage, ProjectImagePayload, ProjectImageUploadDraft } from '../projects/project.types';
 
 const emptyImageForm: ProjectImagePayload = {
   title: '',
@@ -32,8 +32,11 @@ export function ProjectDetailPage() {
   const [images, setImages] = useState<ProjectImage[]>([]);
   const [form, setForm] = useState<ProjectImagePayload>(emptyImageForm);
   const [selectedImage, setSelectedImage] = useState<ProjectImage | null>(null);
+  const [uploadDraft, setUploadDraft] = useState<ProjectImageUploadDraft>({ payload: null, errorKey: null });
+  const [uploadResetKey, setUploadResetKey] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
   const loadProjectDetail = async () => {
@@ -61,7 +64,7 @@ export function ProjectDetailPage() {
       setMessage(null);
     } catch (error) {
       // VI: Loi access/detail co the la 404/403; UI chi hien message an toan.
-      console.error({ module: 'ProjectDetailPage', action: 'loadProjectDetail', projectId: numericProjectId, message: 'Failed to load project detail', error });
+      logSafeFrontendError('loadProjectDetail', error, { projectId: numericProjectId });
       setMessage(t('projectDetail.messages.loadFailed'));
     } finally {
       setIsLoading(false);
@@ -92,7 +95,7 @@ export function ProjectDetailPage() {
       setSelectedImage(null);
       await loadProjectDetail();
     } catch (error) {
-      console.error({ module: 'ProjectDetailPage', action: 'handleSubmit', projectId: project.id, imageId: selectedImage?.id, message: 'Failed to save project image', error });
+      logSafeFrontendError('handleSubmit', error, { projectId: project.id, imageId: selectedImage?.id });
       setMessage(t('projectDetail.messages.imageSaveFailed'));
     } finally {
       setIsSaving(false);
@@ -124,8 +127,39 @@ export function ProjectDetailPage() {
       setMessage(t('projectDetail.messages.imageDeleted'));
       await loadProjectDetail();
     } catch (error) {
-      console.error({ module: 'ProjectDetailPage', action: 'handleDeleteImage', projectId: project.id, imageId: image.id, message: 'Failed to delete project image', error });
+      logSafeFrontendError('handleDeleteImage', error, { projectId: project.id, imageId: image.id });
       setMessage(t('projectDetail.messages.imageDeleteFailed'));
+    }
+  };
+
+  const handleUploadSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!accessToken || !project || !uploadDraft.payload) {
+      if (uploadDraft.errorKey) {
+        setMessage(t(uploadDraft.errorKey));
+      }
+      return;
+    }
+
+    try {
+      setIsUploading(true);
+      await uploadProjectImage(accessToken, project.id, uploadDraft.payload);
+      setUploadDraft({ payload: null, errorKey: null });
+      setUploadResetKey((current) => current + 1);
+      setMessage(t('projectDetail.messages.uploaded'));
+      await loadProjectDetail();
+    } catch (error) {
+      console.error({
+        module: 'ProjectDetailPage',
+        action: 'handleUploadSubmit',
+        projectId: project.id,
+        message: 'Failed to upload project image',
+        errorName: error instanceof Error ? error.name : 'UnknownError',
+        errorMessage: error instanceof Error ? error.message : undefined,
+      });
+      setMessage(t('projectDetail.messages.uploadFailed'));
+    } finally {
+      setIsUploading(false);
     }
   };
 
@@ -171,6 +205,16 @@ export function ProjectDetailPage() {
           </ShellCard>
 
           <ShellCard className="xl:sticky xl:top-24">
+            <div id="image-upload" className="mb-6 border-b border-neutral-200 pb-6">
+              <ProjectImageUploadForm
+                selectedFileName={uploadDraft.payload?.file.name ?? null}
+                resetKey={uploadResetKey}
+                isUploading={isUploading}
+                onFileChange={setUploadDraft}
+                onSubmit={handleUploadSubmit}
+              />
+              {uploadDraft.errorKey ? <p className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">{t(uploadDraft.errorKey)}</p> : null}
+            </div>
             <div id="image-form">
               <ProjectImageForm
                 value={form}
@@ -193,7 +237,7 @@ export function ProjectDetailPage() {
               <h3 className="text-lg font-semibold text-neutral-950">{t('projectDetail.imagesTitle')}</h3>
               <p className="text-sm text-neutral-600">{t('projectDetail.imagesDescription')}</p>
             </div>
-            <a className="inline-flex min-h-11 items-center justify-center gap-2 rounded-md bg-brand-red px-4 py-2 text-sm font-semibold text-white" href="#image-form">
+            <a className="inline-flex min-h-11 items-center justify-center gap-2 rounded-md bg-brand-red px-4 py-2 text-sm font-semibold text-white" href="#image-upload">
               <ImagePlus size={16} />
               {t('projectDetail.addImagePlaceholder')}
             </a>
@@ -219,6 +263,18 @@ function InfoRow({ label, value }: { label: string; value: string }) {
   );
 }
 
+function logSafeFrontendError(action: string, error: unknown, context: { projectId?: number; imageId?: number } = {}) {
+  // VI: Log frontend chi gom context an toan, khong dump raw response/request/token.
+  console.error({
+    module: 'ProjectDetailPage',
+    action,
+    ...context,
+    message: 'Project detail request failed',
+    errorName: error instanceof Error ? error.name : 'UnknownError',
+    errorMessage: error instanceof Error ? error.message : undefined,
+  });
+}
+
 function ImageCard({
   image,
   projectId,
@@ -231,7 +287,7 @@ function ImageCard({
   onDelete: (image: ProjectImage) => void;
 }) {
   const { t } = useTranslation();
-  const thumbnail = image.thumbnailUrl || image.imageUrl;
+  const thumbnail = resolveProjectImageUrl(image.thumbnailUrl || image.imageUrl);
 
   return (
     <div className="rounded-md border border-neutral-200 bg-white p-3">

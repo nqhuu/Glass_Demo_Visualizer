@@ -1,6 +1,7 @@
-import type { Project, ProjectImage, ProjectImagePayload, ProjectPayload, ProjectQuery } from './project.types';
+import type { Project, ProjectImage, ProjectImagePayload, ProjectImageUploadPayload, ProjectPayload, ProjectQuery } from './project.types';
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:3000/api';
+const apiAssetOrigin = new URL(apiBaseUrl).origin;
 
 // VI: Helper API du an gui JWT va chi hien message an toan len UI.
 async function projectRequest<T>(path: string, accessToken: string, init: RequestInit = {}): Promise<T> {
@@ -17,6 +18,24 @@ async function projectRequest<T>(path: string, accessToken: string, init: Reques
 
   if (!response.ok) {
     throw new Error((payload as { message?: string } | null)?.message ?? 'Project request failed.');
+  }
+
+  return payload as T;
+}
+
+async function projectFormRequest<T>(path: string, accessToken: string, formData: FormData): Promise<T> {
+  const response = await fetch(`${apiBaseUrl}${path}`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: formData,
+  });
+
+  const payload = (await response.json().catch(() => null)) as { message?: string } | T | null;
+
+  if (!response.ok) {
+    throw new Error((payload as { message?: string } | null)?.message ?? 'Project upload failed.');
   }
 
   return payload as T;
@@ -84,6 +103,25 @@ export function createProjectImage(accessToken: string, projectId: number, paylo
   });
 }
 
+export function uploadProjectImage(accessToken: string, projectId: number, payload: ProjectImageUploadPayload): Promise<ProjectImage> {
+  const formData = new FormData();
+  formData.append('file', payload.file);
+
+  if (payload.title?.trim()) {
+    formData.append('title', payload.title.trim());
+  }
+
+  if (payload.description?.trim()) {
+    formData.append('description', payload.description.trim());
+  }
+
+  if (payload.sortOrder !== undefined) {
+    formData.append('sortOrder', String(payload.sortOrder));
+  }
+
+  return projectFormRequest<ProjectImage>(`/projects/${projectId}/images/upload`, accessToken, formData);
+}
+
 export function updateProjectImage(
   accessToken: string,
   projectId: number,
@@ -100,4 +138,16 @@ export function deleteProjectImage(accessToken: string, projectId: number, image
   return projectRequest<{ deleted: true }>(`/projects/${projectId}/images/${imageId}`, accessToken, {
     method: 'DELETE',
   });
+}
+
+export function resolveProjectImageUrl(url: string | null): string | null {
+  if (!url) {
+    return null;
+  }
+
+  if (url.startsWith('/uploads/')) {
+    return `${apiAssetOrigin}${url}`;
+  }
+
+  return url;
 }
