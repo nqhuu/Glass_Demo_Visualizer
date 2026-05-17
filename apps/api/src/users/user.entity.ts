@@ -1,4 +1,5 @@
-import { Column, CreateDateColumn, Entity, PrimaryGeneratedColumn, UpdateDateColumn } from 'typeorm';
+import { Column, CreateDateColumn, Entity, OneToMany, PrimaryGeneratedColumn, UpdateDateColumn } from 'typeorm';
+import { Project } from '../projects/project.entity';
 import { UserRole } from './user-role.enum';
 
 // VI: Bang nguoi dung dung cho xac thuc JWT va phan quyen Sprint 1.
@@ -17,11 +18,22 @@ export class User {
   @Column({ name: 'password_hash', select: false, length: 255 })
   passwordHash!: string;
 
+  // VI: Luu hash cua reset token, khong bao gio luu token goc vao database.
+  @Column({ name: 'password_reset_token_hash', type: 'varchar', length: 128, nullable: true, select: false })
+  passwordResetTokenHash!: string | null;
+
+  @Column({ name: 'password_reset_expires_at', type: 'datetime', nullable: true })
+  passwordResetExpiresAt!: Date | null;
+
   @Column({ type: 'enum', enum: UserRole, default: UserRole.User })
   role!: UserRole;
 
   @Column({ default: true })
   isActive!: boolean;
+
+  // VI: Mot user co nhieu du an; backend dung quan he nay de kiem tra owner.
+  @OneToMany(() => Project, (project) => project.owner)
+  projects!: Project[];
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt!: Date;

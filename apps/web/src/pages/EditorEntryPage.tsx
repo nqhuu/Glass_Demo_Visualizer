@@ -1,10 +1,12 @@
 import { useTranslation } from 'react-i18next';
+import { useParams } from 'react-router-dom';
 import { PageHeader } from '../components/PageHeader';
 import { ShellCard } from '../components/ShellCard';
 
-// VI: Entry shell editor Sprint 2, khong co canvas, overlay, upload hay rendering logic.
+// VI: Entry shell editor Sprint 4 nhan project/image id nhung chua co canvas hay rendering logic.
 export function EditorEntryPage() {
   const { t } = useTranslation();
+  const { projectId, imageId } = useParams();
 
   return (
     <div className="space-y-6">
@@ -21,6 +23,7 @@ export function EditorEntryPage() {
         <ShellCard>
           <h3 className="text-lg font-semibold text-neutral-950">{t('editorEntry.panelTitle')}</h3>
           <div className="mt-4 space-y-3">
+            {projectId && imageId ? <PanelRow text={t('editorEntry.panelStepCurrentImage', { projectId, imageId })} /> : null}
             <PanelRow text={t('editorEntry.panelStepImage')} />
             <PanelRow text={t('editorEntry.panelStepRegion')} />
             <PanelRow text={t('editorEntry.panelStepGlass')} />

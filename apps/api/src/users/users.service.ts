@@ -3,6 +3,12 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { User } from './user.entity';
 
+interface SafeErrorLog {
+  errorName: string;
+  errorCode?: string;
+  errorMessage: string;
+}
+
 // VI: Service truy cap bang users, gom query an toan cho login va /auth/me.
 @Injectable()
 export class UsersService {
@@ -25,9 +31,8 @@ export class UsersService {
       this.logger.error({
         module: 'UsersService',
         action: 'findAuthUserByEmail',
-        email,
         message: 'Failed to load user for authentication',
-        error,
+        ...this.sanitizeErrorForLog(error),
       });
       throw new InternalServerErrorException('Unable to complete authentication request.');
     }
@@ -45,9 +50,8 @@ export class UsersService {
       this.logger.error({
         module: 'UsersService',
         action: 'findActiveById',
-        userId,
         message: 'Failed to load authenticated user',
-        error,
+        ...this.sanitizeErrorForLog(error),
       });
       throw new InternalServerErrorException('Unable to load authenticated user.');
     }
@@ -62,9 +66,49 @@ export class UsersService {
       this.logger.error({
         module: 'UsersService',
         action: 'findByEmail',
-        email,
         message: 'Failed to query user by email',
-        error,
+        ...this.sanitizeErrorForLog(error),
+      });
+      throw new InternalServerErrorException('Unable to query local admin user.');
+    }
+  }
+
+  async findResetUserByTokenHash(tokenHash: string): Promise<User | null> {
+    try {
+      // VI: Reset mat khau can lay hash reset token va passwordHash de cap nhat an toan.
+      return await this.usersRepository
+        .createQueryBuilder('user')
+        .addSelect('user.passwordHash')
+        .addSelect('user.passwordResetTokenHash')
+        .where('user.passwordResetTokenHash = :tokenHash', { tokenHash })
+        .andWhere('user.passwordResetExpiresAt > :now', { now: new Date() })
+        .andWhere('user.isActive = :isActive', { isActive: true })
+        .getOne();
+    } catch (error) {
+      this.logger.error({
+        module: 'UsersService',
+        action: 'findResetUserByTokenHash',
+        message: 'Failed to query user by reset token',
+        ...this.sanitizeErrorForLog(error),
+      });
+      throw new InternalServerErrorException('Unable to complete password reset request.');
+    }
+  }
+
+  async findSeedUserByEmail(email: string): Promise<User | null> {
+    try {
+      // VI: Chi seed local moi can lay password hash de kiem tra tai khoan admin dev.
+      return await this.usersRepository
+        .createQueryBuilder('user')
+        .addSelect('user.passwordHash')
+        .where('LOWER(user.email) = LOWER(:email)', { email })
+        .getOne();
+    } catch (error) {
+      this.logger.error({
+        module: 'UsersService',
+        action: 'findSeedUserByEmail',
+        message: 'Failed to query local seed user',
+        ...this.sanitizeErrorForLog(error),
       });
       throw new InternalServerErrorException('Unable to query local admin user.');
     }
@@ -77,9 +121,8 @@ export class UsersService {
       this.logger.error({
         module: 'UsersService',
         action: 'save',
-        email: user.email,
         message: 'Failed to save user',
-        error,
+        ...this.sanitizeErrorForLog(error),
       });
       throw new InternalServerErrorException('Unable to save user.');
     }
@@ -87,5 +130,17 @@ export class UsersService {
 
   create(input: Pick<User, 'name' | 'email' | 'passwordHash' | 'role' | 'isActive'>): User {
     return this.usersRepository.create(input);
+  }
+
+  private sanitizeErrorForLog(error: unknown): SafeErrorLog {
+    // VI: Chi log ten loi va ma DB an toan, khong log raw query/params/hash/token.
+    const errorRecord = error instanceof Object ? (error as Record<string, unknown>) : {};
+    const rawCode = errorRecord.code;
+
+    return {
+      errorName: error instanceof Error ? error.name : 'UnknownError',
+      errorCode: typeof rawCode === 'string' || typeof rawCode === 'number' ? String(rawCode) : undefined,
+      errorMessage: 'Database operation failed.',
+    };
   }
 }

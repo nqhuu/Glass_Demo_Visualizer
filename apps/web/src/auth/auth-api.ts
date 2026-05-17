@@ -1,4 +1,4 @@
-import type { AuthUser, LoginResponse } from './auth.types';
+import type { AuthUser, ForgotPasswordResponse, LoginResponse } from './auth.types';
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:3000/api';
 
@@ -36,5 +36,26 @@ export function currentUserRequest(accessToken: string): Promise<AuthUser> {
     headers: {
       Authorization: `Bearer ${accessToken}`,
     },
+  });
+}
+
+export function registerRequest(name: string, email: string, password: string): Promise<LoginResponse> {
+  return requestJson<LoginResponse>('/auth/register', {
+    method: 'POST',
+    body: JSON.stringify({ name, email, password }),
+  });
+}
+
+export function forgotPasswordRequest(email: string): Promise<ForgotPasswordResponse> {
+  return requestJson<ForgotPasswordResponse>('/auth/forgot-password', {
+    method: 'POST',
+    body: JSON.stringify({ email }),
+  });
+}
+
+export function resetPasswordRequest(token: string, password: string): Promise<{ success: true }> {
+  return requestJson<{ success: true }>('/auth/reset-password', {
+    method: 'POST',
+    body: JSON.stringify({ token, password }),
   });
 }

@@ -15,9 +15,14 @@ export class UsersSeedService implements OnApplicationBootstrap {
   ) {}
 
   async onApplicationBootstrap(): Promise<void> {
+    const nodeEnv = this.configService.get<string>('NODE_ENV', 'development');
     const name = this.configService.get<string>('SEED_ADMIN_NAME');
     const email = this.configService.get<string>('SEED_ADMIN_EMAIL');
     const password = this.configService.get<string>('SEED_ADMIN_PASSWORD');
+
+    if (nodeEnv === 'production') {
+      return;
+    }
 
     if (!name || !email || !password) {
       this.logger.warn({
@@ -29,9 +34,39 @@ export class UsersSeedService implements OnApplicationBootstrap {
     }
 
     try {
-      const existingUser = await this.usersService.findByEmail(email);
+      const existingUser = await this.usersService.findSeedUserByEmail(email);
 
       if (existingUser) {
+        const passwordMatches = await bcrypt.compare(password, existingUser.passwordHash);
+        const needsUpdate =
+          existingUser.name !== name ||
+          existingUser.role !== UserRole.Admin ||
+          !existingUser.isActive ||
+          !passwordMatches;
+
+        if (!needsUpdate) {
+          this.logger.log({
+            module: 'UsersSeedService',
+            action: 'onApplicationBootstrap',
+            message: 'Local admin user already available',
+          });
+          return;
+        }
+
+        // VI: Trong development, seed co the sua role/active/password cho admin local bi cu.
+        existingUser.name = name;
+        existingUser.role = UserRole.Admin;
+        existingUser.isActive = true;
+        if (!passwordMatches) {
+          existingUser.passwordHash = await bcrypt.hash(password, 12);
+        }
+
+        await this.usersService.save(existingUser);
+        this.logger.log({
+          module: 'UsersSeedService',
+          action: 'onApplicationBootstrap',
+          message: 'Local admin user repaired',
+        });
         return;
       }
 
@@ -48,16 +83,15 @@ export class UsersSeedService implements OnApplicationBootstrap {
       this.logger.log({
         module: 'UsersSeedService',
         action: 'onApplicationBootstrap',
-        email,
         message: 'Local admin user seeded',
       });
     } catch (error) {
       this.logger.error({
         module: 'UsersSeedService',
         action: 'onApplicationBootstrap',
-        email,
         message: 'Failed to seed local admin user',
-        error,
+        errorName: error instanceof Error ? error.name : 'UnknownError',
+        errorMessage: error instanceof Error ? error.message : undefined,
       });
       throw error;
     }

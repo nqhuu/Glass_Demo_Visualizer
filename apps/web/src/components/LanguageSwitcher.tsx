@@ -1,6 +1,7 @@
 import { useTranslation } from 'react-i18next';
+import { Languages } from 'lucide-react';
 
-// VI: Nut doi ngon ngu dung i18n key cho toan bo text hien thi.
+// VI: Nut doi ngon ngu gon VI/EN dung chung cho login va app shell.
 export function LanguageSwitcher() {
   const { t, i18n } = useTranslation();
 
@@ -19,20 +20,21 @@ export function LanguageSwitcher() {
   };
 
   return (
-    <div className="flex gap-2">
+    <div className="inline-flex items-center gap-1 rounded-md border border-neutral-300 bg-white p-1" aria-label={t('common.languageSwitchLabel')}>
+      <Languages aria-hidden="true" className="ml-1 text-neutral-500" size={16} />
       <button
-        className="rounded-md border border-neutral-300 px-3 py-2 text-sm font-semibold text-neutral-800"
+        className={`rounded px-2 py-1 text-xs font-semibold ${i18n.language === 'vi' ? 'bg-brand-red text-white' : 'text-neutral-700'}`}
         type="button"
         onClick={() => switchLanguage('vi')}
       >
-        {t('common.languageVietnamese')}
+        {t('common.languageVietnameseShort')}
       </button>
       <button
-        className="rounded-md border border-neutral-300 px-3 py-2 text-sm font-semibold text-neutral-800"
+        className={`rounded px-2 py-1 text-xs font-semibold ${i18n.language === 'en' ? 'bg-brand-red text-white' : 'text-neutral-700'}`}
         type="button"
         onClick={() => switchLanguage('en')}
       >
-        {t('common.languageEnglish')}
+        {t('common.languageEnglishShort')}
       </button>
     </div>
   );

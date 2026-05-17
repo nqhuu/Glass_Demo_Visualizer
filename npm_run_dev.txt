@@ -1,0 +1,9 @@
+Chạy backend
+npm run dev:api
+Sau đó kiểm tra backend bằng trình duyệt:
+http://localhost:3000/api/health
+
+Chạy frontend
+npm run dev:web
+Sau đó mở trình duyệt:
+http://localhost:5173

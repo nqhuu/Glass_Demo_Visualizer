@@ -7,9 +7,12 @@ import { AdminEntryPage } from './pages/AdminEntryPage';
 import { BrandingSettingsPage } from './pages/BrandingSettingsPage';
 import { DashboardPage } from './pages/DashboardPage';
 import { EditorEntryPage } from './pages/EditorEntryPage';
+import { ForgotPasswordPage } from './pages/ForgotPasswordPage';
 import { LoginPage } from './pages/LoginPage';
 import { ProjectDetailPage } from './pages/ProjectDetailPage';
 import { ProjectsPage } from './pages/ProjectsPage';
+import { RegisterPage } from './pages/RegisterPage';
+import { ResetPasswordPage } from './pages/ResetPasswordPage';
 
 // VI: Dinh nghia route Sprint 2 voi app shell duoc bao ve bang JWT.
 export default function App() {
@@ -17,6 +20,9 @@ export default function App() {
     <AuthProvider>
       <Routes>
         <Route path="/login" element={<LoginPage />} />
+        <Route path="/register" element={<RegisterPage />} />
+        <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+        <Route path="/reset-password" element={<ResetPasswordPage />} />
         <Route
           path="/app"
           element={
@@ -30,6 +36,7 @@ export default function App() {
           <Route path="projects" element={<ProjectsPage />} />
           <Route path="projects/:projectId" element={<ProjectDetailPage />} />
           <Route path="editor" element={<EditorEntryPage />} />
+          <Route path="editor/projects/:projectId/images/:imageId" element={<EditorEntryPage />} />
           <Route
             path="admin"
             element={

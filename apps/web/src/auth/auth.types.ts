@@ -13,4 +13,8 @@ export interface LoginResponse {
   user: AuthUser;
 }
 
+export interface ForgotPasswordResponse {
+  message: string;
+}
+
 export type AuthStatus = 'loading' | 'authenticated' | 'anonymous';

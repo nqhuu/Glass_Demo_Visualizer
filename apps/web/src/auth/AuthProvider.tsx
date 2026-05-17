@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { currentUserRequest, loginRequest } from './auth-api';
+import { currentUserRequest, loginRequest, registerRequest } from './auth-api';
 import { AuthContext, type AuthContextValue } from './auth-context';
 import type { AuthStatus, AuthUser } from './auth.types';
 
@@ -60,6 +60,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setStatus('authenticated');
   }, []);
 
+  const register = useCallback(async (name: string, email: string, password: string) => {
+    const response = await registerRequest(name, email, password);
+    sessionStorage.setItem(ACCESS_TOKEN_KEY, response.accessToken);
+    setAccessToken(response.accessToken);
+    setUser(response.user);
+    setStatus('authenticated');
+  }, []);
+
   const logout = useCallback(() => {
     // VI: Sprint 1 logout la client-side token clear; server-side revoke de danh cho kien truc sau.
     sessionStorage.removeItem(ACCESS_TOKEN_KEY);
@@ -74,9 +82,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       user,
       accessToken,
       login,
+      register,
       logout,
     }),
-    [accessToken, login, logout, status, user],
+    [accessToken, login, logout, register, status, user],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
