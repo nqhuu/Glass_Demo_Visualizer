@@ -1,6 +1,7 @@
 import { Column, CreateDateColumn, Entity, JoinColumn, ManyToOne, OneToMany, PrimaryGeneratedColumn, UpdateDateColumn } from 'typeorm';
 import { User } from '../users/user.entity';
 import { ProjectStatus } from './enums/project-status.enum';
+import { GlassRegion } from './glass-region.entity';
 import { ProjectImage } from './project-image.entity';
 
 // VI: Entity du an cua user, moi du an co the chua nhieu anh cong trinh.
@@ -43,6 +44,9 @@ export class Project {
 
   @OneToMany(() => ProjectImage, (image) => image.project)
   images!: ProjectImage[];
+
+  @OneToMany(() => GlassRegion, (region) => region.project)
+  glassRegions!: GlassRegion[];
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt!: Date;

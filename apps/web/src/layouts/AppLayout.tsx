@@ -11,6 +11,9 @@ export function AppLayout() {
   const navigate = useNavigate();
   const location = useLocation();
   const visibleNavItems = getVisibleNavItems(user?.role);
+  const isEditorWorkspace =
+    /^\/app\/projects\/[^/]+\/images\/[^/]+\/editor$/.test(location.pathname) ||
+    /^\/app\/editor\/projects\/[^/]+\/images\/[^/]+$/.test(location.pathname);
   const activeItem =
     visibleNavItems.find((item) => location.pathname === item.path || location.pathname.startsWith(`${item.path}/`)) ??
     visibleNavItems[0];
@@ -26,10 +29,22 @@ export function AppLayout() {
         action: 'handleLogout',
         userId: user?.id,
         message: 'Failed to complete logout navigation',
-        error,
+        errorName: error instanceof Error ? error.name : 'UnknownError',
+        errorMessage: error instanceof Error ? error.message : undefined,
       });
     }
   };
+
+  if (isEditorWorkspace) {
+    // VI: Route editor can khong gian rong nhu mockup, van nam trong ProtectedRoute cua /app.
+    return (
+      <div className="min-h-screen bg-stone-50 text-brand-black">
+        <main className="min-h-screen">
+          <Outlet />
+        </main>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-stone-50 text-brand-black">

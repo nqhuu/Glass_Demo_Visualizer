@@ -3,6 +3,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { JwtPayload } from '../auth/auth.types';
+import { CreateGlassRegionDto } from './dto/create-glass-region.dto';
 import { CreateProjectImageDto } from './dto/create-project-image.dto';
 import { CreateProjectDto } from './dto/create-project.dto';
 import { ListProjectsDto } from './dto/list-projects.dto';
@@ -63,6 +64,26 @@ export class ProjectsController {
     @Body() dto: UploadProjectImageDto,
   ) {
     return this.projectsService.uploadImage(user, projectId, file, dto);
+  }
+
+  @Get(':projectId/images/:imageId/regions')
+  listRegions(
+    @CurrentUser() user: JwtPayload,
+    @Param('projectId', ParseIntPipe) projectId: number,
+    @Param('imageId', ParseIntPipe) imageId: number,
+  ) {
+    return this.projectsService.listRegions(user, projectId, imageId);
+  }
+
+  @Post(':projectId/images/:imageId/regions')
+  // VI: Tao region va pane yeu cau JWT; service kiem tra owner, image thuoc project va chong chong lan.
+  createRegion(
+    @CurrentUser() user: JwtPayload,
+    @Param('projectId', ParseIntPipe) projectId: number,
+    @Param('imageId', ParseIntPipe) imageId: number,
+    @Body() dto: CreateGlassRegionDto,
+  ) {
+    return this.projectsService.createRegion(user, projectId, imageId, dto);
   }
 
   @Patch(':projectId/images/:imageId')

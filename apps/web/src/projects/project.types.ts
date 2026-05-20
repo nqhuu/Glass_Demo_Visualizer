@@ -1,6 +1,14 @@
 // VI: Kieu du lieu frontend cho Sprint 4 project va metadata anh du an.
 export type ProjectStatus = 'draft' | 'active' | 'archived';
 export type ProjectImageSourceType = 'uploaded' | 'external_url' | 'placeholder';
+export type GlassRegionBoundaryType = 'rectangle' | 'quadrilateral' | 'polygon';
+export type GlassRegionGridMode = 'none' | 'rows_columns' | 'manual_lines';
+export type GlassRegionStatus = 'unassigned' | 'assigned' | 'invalid';
+
+export interface NormalizedPoint {
+  x: number;
+  y: number;
+}
 
 export interface ProjectImage {
   id: number;
@@ -72,4 +80,43 @@ export interface ProjectImageUploadDraft {
 export interface ProjectQuery {
   search?: string;
   status?: ProjectStatus | 'all';
+}
+
+export interface GlassRegionPane {
+  id: number;
+  glassRegionId: number;
+  paneCode: string;
+  panePointsJson: NormalizedPoint[];
+  rowIndex: number | null;
+  columnIndex: number | null;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface GlassRegion {
+  id: number;
+  projectId: number;
+  projectImageId: number;
+  name: string;
+  boundaryType: GlassRegionBoundaryType;
+  boundaryPointsJson: NormalizedPoint[];
+  glassProductId: number | null;
+  gridMode: GlassRegionGridMode;
+  rows: number | null;
+  columns: number | null;
+  status: GlassRegionStatus;
+  sortOrder: number;
+  panes: GlassRegionPane[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateGlassRegionPayload {
+  name: string;
+  boundaryType: GlassRegionBoundaryType;
+  boundaryPoints: NormalizedPoint[];
+  rows: number;
+  columns: number;
+  sortOrder?: number;
 }

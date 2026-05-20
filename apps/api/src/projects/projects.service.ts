@@ -4,17 +4,23 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { mkdir, unlink, writeFile } from 'node:fs/promises';
 import { extname, parse, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { FindOptionsWhere, Like, Repository } from 'typeorm';
+import { DataSource, FindOptionsWhere, Like, Repository } from 'typeorm';
 import { JwtPayload } from '../auth/auth.types';
 import { UserRole } from '../users/user-role.enum';
+import { CreateGlassRegionDto } from './dto/create-glass-region.dto';
 import { CreateProjectImageDto } from './dto/create-project-image.dto';
 import { CreateProjectDto } from './dto/create-project.dto';
 import { ListProjectsDto } from './dto/list-projects.dto';
 import { UpdateProjectImageDto } from './dto/update-project-image.dto';
 import { UpdateProjectDto } from './dto/update-project.dto';
 import { UploadProjectImageDto } from './dto/upload-project-image.dto';
+import { GlassRegionGridMode } from './enums/glass-region-grid-mode.enum';
+import { GlassRegionStatus } from './enums/glass-region-status.enum';
 import { ProjectImageSourceType } from './enums/project-image-source-type.enum';
 import { ProjectStatus } from './enums/project-status.enum';
+import { generateGridPanes, polygonsOverlap, validateBoundaryPoints } from './geometry/glass-region-geometry';
+import { GlassRegion } from './glass-region.entity';
+import { GlassRegionPane } from './glass-region-pane.entity';
 import { ProjectImage } from './project-image.entity';
 import { Project } from './project.entity';
 import { UploadedProjectFile } from './uploaded-project-file.type';
@@ -38,6 +44,9 @@ export class ProjectsService {
     private readonly projectsRepository: Repository<Project>,
     @InjectRepository(ProjectImage)
     private readonly imagesRepository: Repository<ProjectImage>,
+    @InjectRepository(GlassRegion)
+    private readonly regionsRepository: Repository<GlassRegion>,
+    private readonly dataSource: DataSource,
     private readonly configService: ConfigService,
   ) {}
 
@@ -230,6 +239,88 @@ export class ProjectsService {
     }
   }
 
+  async listRegions(user: JwtPayload, projectId: number, imageId: number): Promise<GlassRegion[]> {
+    try {
+      await this.findAccessibleProjectImage(user, projectId, imageId);
+      return await this.regionsRepository.find({
+        where: { projectId, projectImageId: imageId },
+        relations: { panes: true },
+        order: { sortOrder: 'ASC', createdAt: 'ASC', panes: { sortOrder: 'ASC' } },
+      });
+    } catch (error) {
+      if (this.isExpectedAccessError(error)) {
+        throw error;
+      }
+      this.logAndThrow('listRegions', 'Unable to load glass regions.', error, { userId: user.sub, projectId, imageId });
+    }
+  }
+
+  async createRegion(user: JwtPayload, projectId: number, imageId: number, dto: CreateGlassRegionDto): Promise<GlassRegion> {
+    try {
+      await this.findAccessibleProjectImage(user, projectId, imageId);
+      const boundaryPoints = validateBoundaryPoints(dto.boundaryType, dto.boundaryPoints);
+      const rows = dto.rows;
+      const columns = dto.columns;
+      const panes = generateGridPanes(boundaryPoints, rows, columns);
+
+      const savedRegionId = await this.dataSource.transaction('SERIALIZABLE', async (manager) => {
+        const existingRegions = await manager.find(GlassRegion, {
+          where: { projectId, projectImageId: imageId },
+        });
+        const overlapsExisting = existingRegions.some((region) => polygonsOverlap(boundaryPoints, region.boundaryPointsJson));
+        if (overlapsExisting) {
+          throw new BadRequestException('Region overlaps another region.');
+        }
+
+        // VI: Luu region va pane trong mot transaction de tranh region khong co pane neu DB loi giua chung.
+        // VI: TODO Sprint sau: them chien luoc lock/constraint manh hon khi edit/copy region chay song song nhieu request.
+        const region = manager.create(GlassRegion, {
+          projectId,
+          projectImageId: imageId,
+          name: dto.name.trim(),
+          boundaryType: dto.boundaryType,
+          boundaryPointsJson: boundaryPoints,
+          glassProductId: null,
+          gridMode: GlassRegionGridMode.RowsColumns,
+          rows,
+          columns,
+          status: GlassRegionStatus.Unassigned,
+          sortOrder: dto.sortOrder ?? 0,
+        });
+        const savedRegion = await manager.save(GlassRegion, region);
+        const paneEntities = panes.map((pane) =>
+          manager.create(GlassRegionPane, {
+            glassRegionId: savedRegion.id,
+            paneCode: pane.paneCode,
+            panePointsJson: pane.points,
+            rowIndex: pane.rowIndex,
+            columnIndex: pane.columnIndex,
+            sortOrder: pane.sortOrder,
+          }),
+        );
+        await manager.save(GlassRegionPane, paneEntities);
+        return savedRegion.id;
+      });
+
+      const savedRegion = await this.regionsRepository.findOne({
+        where: { id: savedRegionId, projectId, projectImageId: imageId },
+        relations: { panes: true },
+        order: { panes: { sortOrder: 'ASC' } },
+      });
+
+      if (!savedRegion) {
+        throw new InternalServerErrorException('Unable to load saved glass region.');
+      }
+
+      return savedRegion;
+    } catch (error) {
+      if (this.isExpectedAccessError(error) || error instanceof BadRequestException) {
+        throw error;
+      }
+      this.logAndThrow('createRegion', 'Unable to create glass region.', error, { userId: user.sub, projectId, imageId });
+    }
+  }
+
   private buildProjectWhere(user: JwtPayload, query: ListProjectsDto): FindOptionsWhere<Project>[] | FindOptionsWhere<Project> {
     const ownerFilter = user.role === UserRole.Admin ? {} : { ownerId: user.sub };
     const statusFilter = query.status ? { status: query.status } : {};
@@ -274,6 +365,12 @@ export class ProjectsService {
     }
 
     return image;
+  }
+
+  private async findAccessibleProjectImage(user: JwtPayload, projectId: number, imageId: number): Promise<ProjectImage> {
+    // VI: Luon xac minh owner project truoc, sau do moi chap nhan image thuoc dung project.
+    await this.findAccessibleProject(user, projectId);
+    return this.findProjectImage(projectId, imageId);
   }
 
   private normalizeImageInput(

@@ -301,7 +301,7 @@ function ImageCard({
       {image.description ? <p className="mt-2 text-sm text-neutral-600">{image.description}</p> : null}
       <p className="mt-2 text-xs font-semibold uppercase text-neutral-500">{t(`projectDetail.sourceTypes.${image.sourceType}`)}</p>
       <div className="mt-3 flex flex-wrap gap-2">
-        <Link className="inline-flex min-h-10 flex-1 items-center justify-center gap-2 rounded-md bg-brand-black px-3 py-2 text-sm font-semibold text-white" to={`/app/editor/projects/${projectId}/images/${image.id}`}>
+        <Link className="inline-flex min-h-10 flex-1 items-center justify-center gap-2 rounded-md bg-brand-black px-3 py-2 text-sm font-semibold text-white" to={`/app/projects/${projectId}/images/${image.id}/editor`}>
           <ExternalLink size={16} />
           {t('projectDetail.openEditorShell')}
         </Link>

@@ -1,5 +1,6 @@
-import { Column, CreateDateColumn, Entity, JoinColumn, ManyToOne, PrimaryGeneratedColumn, UpdateDateColumn } from 'typeorm';
+import { Column, CreateDateColumn, Entity, JoinColumn, ManyToOne, OneToMany, PrimaryGeneratedColumn, UpdateDateColumn } from 'typeorm';
 import { ProjectImageSourceType } from './enums/project-image-source-type.enum';
+import { GlassRegion } from './glass-region.entity';
 import { Project } from './project.entity';
 
 // VI: Entity anh thuoc mot du an; Sprint 4 chi luu metadata/URL, chua upload file nhi phan.
@@ -41,6 +42,9 @@ export class ProjectImage {
 
   @Column({ name: 'sort_order', type: 'int', default: 0 })
   sortOrder!: number;
+
+  @OneToMany(() => GlassRegion, (region) => region.projectImage)
+  glassRegions!: GlassRegion[];
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt!: Date;

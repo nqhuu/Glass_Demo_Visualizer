@@ -22,6 +22,18 @@ async function catalogRequest<T>(path: string, accessToken: string, init: Reques
   return payload as T;
 }
 
+// VI: Helper doc catalog active cho user trong editor shell, khong can token vi backend da public read-only.
+async function publicCatalogRequest<T>(path: string): Promise<T> {
+  const response = await fetch(`${apiBaseUrl}${path}`);
+  const payload = (await response.json().catch(() => null)) as { message?: string } | T | null;
+
+  if (!response.ok) {
+    throw new Error((payload as { message?: string } | null)?.message ?? 'Catalog request failed.');
+  }
+
+  return payload as T;
+}
+
 function toQueryString(query: GlassProductQuery): string {
   const params = new URLSearchParams();
 
@@ -34,6 +46,11 @@ function toQueryString(query: GlassProductQuery): string {
   }
 
   return params.toString();
+}
+
+export function listActiveGlassProducts(query: GlassProductQuery = {}): Promise<GlassProduct[]> {
+  const queryString = toQueryString(query);
+  return publicCatalogRequest<GlassProduct[]>(`/glass-products${queryString ? `?${queryString}` : ''}`);
 }
 
 // VI: API danh muc kinh cho man hinh admin catalog.

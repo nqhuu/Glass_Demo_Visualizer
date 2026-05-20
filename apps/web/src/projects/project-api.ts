@@ -1,4 +1,13 @@
-import type { Project, ProjectImage, ProjectImagePayload, ProjectImageUploadPayload, ProjectPayload, ProjectQuery } from './project.types';
+import type {
+  CreateGlassRegionPayload,
+  GlassRegion,
+  Project,
+  ProjectImage,
+  ProjectImagePayload,
+  ProjectImageUploadPayload,
+  ProjectPayload,
+  ProjectQuery,
+} from './project.types';
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:3000/api';
 const apiAssetOrigin = new URL(apiBaseUrl).origin;
@@ -137,6 +146,18 @@ export function updateProjectImage(
 export function deleteProjectImage(accessToken: string, projectId: number, imageId: number): Promise<{ deleted: true }> {
   return projectRequest<{ deleted: true }>(`/projects/${projectId}/images/${imageId}`, accessToken, {
     method: 'DELETE',
+  });
+}
+
+// VI: API Sprint 7 cho region va pane, backend van la nguon kiem tra ownership/chong chong lan.
+export function listGlassRegions(accessToken: string, projectId: number, imageId: number): Promise<GlassRegion[]> {
+  return projectRequest<GlassRegion[]>(`/projects/${projectId}/images/${imageId}/regions`, accessToken);
+}
+
+export function createGlassRegion(accessToken: string, projectId: number, imageId: number, payload: CreateGlassRegionPayload): Promise<GlassRegion> {
+  return projectRequest<GlassRegion>(`/projects/${projectId}/images/${imageId}/regions`, accessToken, {
+    method: 'POST',
+    body: JSON.stringify(cleanPayload(payload)),
   });
 }
 
