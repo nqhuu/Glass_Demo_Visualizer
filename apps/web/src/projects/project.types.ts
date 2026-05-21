@@ -120,3 +120,13 @@ export interface CreateGlassRegionPayload {
   columns: number;
   sortOrder?: number;
 }
+
+export interface UpdateGlassRegionPayload {
+  name?: string;
+  boundaryType?: GlassRegionBoundaryType;
+  boundaryPoints?: NormalizedPoint[];
+  gridMode?: GlassRegionGridMode;
+  rows?: number;
+  columns?: number;
+  sortOrder?: number;
+}

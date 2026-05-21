@@ -7,6 +7,7 @@ import type {
   ProjectImageUploadPayload,
   ProjectPayload,
   ProjectQuery,
+  UpdateGlassRegionPayload,
 } from './project.types';
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:3000/api';
@@ -149,7 +150,7 @@ export function deleteProjectImage(accessToken: string, projectId: number, image
   });
 }
 
-// VI: API Sprint 7 cho region va pane, backend van la nguon kiem tra ownership/chong chong lan.
+// VI: API Sprint 8 cho CRUD region; backend van la nguon kiem tra ownership/chong chong lan.
 export function listGlassRegions(accessToken: string, projectId: number, imageId: number): Promise<GlassRegion[]> {
   return projectRequest<GlassRegion[]>(`/projects/${projectId}/images/${imageId}/regions`, accessToken);
 }
@@ -158,6 +159,32 @@ export function createGlassRegion(accessToken: string, projectId: number, imageI
   return projectRequest<GlassRegion>(`/projects/${projectId}/images/${imageId}/regions`, accessToken, {
     method: 'POST',
     body: JSON.stringify(cleanPayload(payload)),
+  });
+}
+
+export function updateGlassRegion(
+  accessToken: string,
+  projectId: number,
+  imageId: number,
+  regionId: number,
+  payload: UpdateGlassRegionPayload,
+): Promise<GlassRegion> {
+  return projectRequest<GlassRegion>(`/projects/${projectId}/images/${imageId}/regions/${regionId}`, accessToken, {
+    method: 'PATCH',
+    body: JSON.stringify(cleanPayload(payload)),
+  });
+}
+
+export function duplicateGlassRegion(accessToken: string, projectId: number, imageId: number, regionId: number): Promise<GlassRegion> {
+  return projectRequest<GlassRegion>(`/projects/${projectId}/images/${imageId}/regions/${regionId}/duplicate`, accessToken, {
+    method: 'POST',
+    body: JSON.stringify({}),
+  });
+}
+
+export function deleteGlassRegion(accessToken: string, projectId: number, imageId: number, regionId: number): Promise<{ deleted: true }> {
+  return projectRequest<{ deleted: true }>(`/projects/${projectId}/images/${imageId}/regions/${regionId}`, accessToken, {
+    method: 'DELETE',
   });
 }
 

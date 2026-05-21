@@ -4,16 +4,18 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { mkdir, unlink, writeFile } from 'node:fs/promises';
 import { extname, parse, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { DataSource, FindOptionsWhere, Like, Repository } from 'typeorm';
+import { DataSource, EntityManager, FindOptionsWhere, Like, Repository } from 'typeorm';
 import { JwtPayload } from '../auth/auth.types';
 import { UserRole } from '../users/user-role.enum';
 import { CreateGlassRegionDto } from './dto/create-glass-region.dto';
 import { CreateProjectImageDto } from './dto/create-project-image.dto';
 import { CreateProjectDto } from './dto/create-project.dto';
 import { ListProjectsDto } from './dto/list-projects.dto';
+import { UpdateGlassRegionDto } from './dto/update-glass-region.dto';
 import { UpdateProjectImageDto } from './dto/update-project-image.dto';
 import { UpdateProjectDto } from './dto/update-project.dto';
 import { UploadProjectImageDto } from './dto/upload-project-image.dto';
+import { GlassRegionBoundaryType } from './enums/glass-region-boundary-type.enum';
 import { GlassRegionGridMode } from './enums/glass-region-grid-mode.enum';
 import { GlassRegionStatus } from './enums/glass-region-status.enum';
 import { ProjectImageSourceType } from './enums/project-image-source-type.enum';
@@ -33,6 +35,16 @@ interface ImageUploadValidation {
 }
 
 type SupportedImageKind = 'jpeg' | 'png' | 'webp';
+type RegionPoint = { x: number; y: number };
+
+const DUPLICATE_OFFSETS: RegionPoint[] = [
+  { x: 0.035, y: 0.035 },
+  { x: -0.035, y: 0.035 },
+  { x: 0.035, y: -0.035 },
+  { x: -0.035, y: -0.035 },
+  { x: 0.07, y: 0 },
+  { x: 0, y: 0.07 },
+];
 
 // VI: Service quan ly du an va metadata anh, luon kiem tra owner truoc khi tra du lieu.
 @Injectable()
@@ -255,6 +267,18 @@ export class ProjectsService {
     }
   }
 
+  async getRegion(user: JwtPayload, projectId: number, imageId: number, regionId: number): Promise<GlassRegion> {
+    try {
+      await this.findAccessibleProjectImage(user, projectId, imageId);
+      return await this.findRegion(projectId, imageId, regionId);
+    } catch (error) {
+      if (this.isExpectedAccessError(error)) {
+        throw error;
+      }
+      this.logAndThrow('getRegion', 'Unable to load glass region.', error, { userId: user.sub, projectId, imageId, regionId });
+    }
+  }
+
   async createRegion(user: JwtPayload, projectId: number, imageId: number, dto: CreateGlassRegionDto): Promise<GlassRegion> {
     try {
       await this.findAccessibleProjectImage(user, projectId, imageId);
@@ -264,13 +288,7 @@ export class ProjectsService {
       const panes = generateGridPanes(boundaryPoints, rows, columns);
 
       const savedRegionId = await this.dataSource.transaction('SERIALIZABLE', async (manager) => {
-        const existingRegions = await manager.find(GlassRegion, {
-          where: { projectId, projectImageId: imageId },
-        });
-        const overlapsExisting = existingRegions.some((region) => polygonsOverlap(boundaryPoints, region.boundaryPointsJson));
-        if (overlapsExisting) {
-          throw new BadRequestException('Region overlaps another region.');
-        }
+        await this.assertNoRegionOverlap(manager, projectId, imageId, boundaryPoints);
 
         // VI: Luu region va pane trong mot transaction de tranh region khong co pane neu DB loi giua chung.
         // VI: TODO Sprint sau: them chien luoc lock/constraint manh hon khi edit/copy region chay song song nhieu request.
@@ -318,6 +336,146 @@ export class ProjectsService {
         throw error;
       }
       this.logAndThrow('createRegion', 'Unable to create glass region.', error, { userId: user.sub, projectId, imageId });
+    }
+  }
+
+  async updateRegion(user: JwtPayload, projectId: number, imageId: number, regionId: number, dto: UpdateGlassRegionDto): Promise<GlassRegion> {
+    try {
+      await this.findAccessibleProjectImage(user, projectId, imageId);
+      const current = await this.findRegion(projectId, imageId, regionId);
+      const nextBoundaryType = dto.boundaryType ?? current.boundaryType;
+      const nextBoundaryPoints = dto.boundaryPoints ? validateBoundaryPoints(nextBoundaryType, dto.boundaryPoints) : current.boundaryPointsJson;
+      const nextRows = dto.rows ?? current.rows ?? 1;
+      const nextColumns = dto.columns ?? current.columns ?? 1;
+      const nextGridMode = dto.gridMode ?? current.gridMode;
+      if (nextGridMode !== GlassRegionGridMode.RowsColumns) {
+        throw new BadRequestException('Only rows/columns grid mode is supported in this sprint.');
+      }
+      const shouldRegeneratePanes = Boolean(dto.boundaryType || dto.boundaryPoints || dto.rows !== undefined || dto.columns !== undefined || dto.gridMode !== undefined);
+      const panes = shouldRegeneratePanes ? generateGridPanes(nextBoundaryPoints, nextRows, nextColumns) : [];
+
+      const savedRegionId = await this.dataSource.transaction('SERIALIZABLE', async (manager) => {
+        const region = await manager.findOne(GlassRegion, {
+          where: { id: regionId, projectId, projectImageId: imageId },
+        });
+
+        if (!region) {
+          throw new NotFoundException('Glass region was not found.');
+        }
+
+        if (shouldRegeneratePanes) {
+          await this.assertNoRegionOverlap(manager, projectId, imageId, nextBoundaryPoints, regionId);
+        }
+
+        region.name = dto.name === undefined ? region.name : dto.name.trim();
+        region.boundaryType = nextBoundaryType;
+        region.boundaryPointsJson = nextBoundaryPoints;
+        region.gridMode = nextGridMode;
+        region.rows = nextRows;
+        region.columns = nextColumns;
+        region.sortOrder = dto.sortOrder ?? region.sortOrder;
+
+        const savedRegion = await manager.save(GlassRegion, region);
+
+        if (shouldRegeneratePanes) {
+          // VI: Khi geometry/grid doi, xoa pane cu va tao lai trong cung transaction de tranh lech du lieu.
+          await manager.delete(GlassRegionPane, { glassRegionId: regionId });
+          const paneEntities = panes.map((pane) =>
+            manager.create(GlassRegionPane, {
+              glassRegionId: savedRegion.id,
+              paneCode: pane.paneCode,
+              panePointsJson: pane.points,
+              rowIndex: pane.rowIndex,
+              columnIndex: pane.columnIndex,
+              sortOrder: pane.sortOrder,
+            }),
+          );
+          await manager.save(GlassRegionPane, paneEntities);
+        }
+
+        return savedRegion.id;
+      });
+
+      return await this.findRegion(projectId, imageId, savedRegionId);
+    } catch (error) {
+      if (this.isExpectedAccessError(error) || error instanceof BadRequestException) {
+        throw error;
+      }
+      this.logAndThrow('updateRegion', 'Unable to update glass region.', error, { userId: user.sub, projectId, imageId, regionId });
+    }
+  }
+
+  async duplicateRegion(user: JwtPayload, projectId: number, imageId: number, regionId: number): Promise<GlassRegion> {
+    try {
+      await this.findAccessibleProjectImage(user, projectId, imageId);
+      const original = await this.findRegion(projectId, imageId, regionId);
+
+      const savedRegionId = await this.dataSource.transaction('SERIALIZABLE', async (manager) => {
+        const existingRegions = await manager.find(GlassRegion, {
+          where: { projectId, projectImageId: imageId },
+        });
+        const candidatePoints = this.findDuplicateBoundary(original.boundaryPointsJson, existingRegions);
+
+        if (!candidatePoints) {
+          throw new BadRequestException('No non-overlapping space is available for a duplicate region.');
+        }
+
+        const panes = generateGridPanes(candidatePoints, original.rows ?? 1, original.columns ?? 1);
+        // VI: Duplicate tao region/pane moi va giu glassProductId neu cot da co san, khong them UI gan kinh Sprint 9.
+        const duplicate = manager.create(GlassRegion, {
+          projectId,
+          projectImageId: imageId,
+          name: `Copy of ${original.name}`.slice(0, 180),
+          boundaryType: original.boundaryType,
+          boundaryPointsJson: candidatePoints,
+          glassProductId: original.glassProductId,
+          gridMode: original.gridMode,
+          rows: original.rows,
+          columns: original.columns,
+          status: original.status,
+          sortOrder: original.sortOrder + 1,
+        });
+        const savedRegion = await manager.save(GlassRegion, duplicate);
+        const paneEntities = panes.map((pane) =>
+          manager.create(GlassRegionPane, {
+            glassRegionId: savedRegion.id,
+            paneCode: pane.paneCode,
+            panePointsJson: pane.points,
+            rowIndex: pane.rowIndex,
+            columnIndex: pane.columnIndex,
+            sortOrder: pane.sortOrder,
+          }),
+        );
+        await manager.save(GlassRegionPane, paneEntities);
+        return savedRegion.id;
+      });
+
+      return await this.findRegion(projectId, imageId, savedRegionId);
+    } catch (error) {
+      if (this.isExpectedAccessError(error) || error instanceof BadRequestException) {
+        throw error;
+      }
+      this.logAndThrow('duplicateRegion', 'Unable to duplicate glass region.', error, { userId: user.sub, projectId, imageId, regionId });
+    }
+  }
+
+  async deleteRegion(user: JwtPayload, projectId: number, imageId: number, regionId: number): Promise<{ deleted: true }> {
+    try {
+      await this.findAccessibleProjectImage(user, projectId, imageId);
+      await this.findRegion(projectId, imageId, regionId);
+
+      await this.dataSource.transaction(async (manager) => {
+        // VI: Pane co cascade, nhung xoa ro rang trong transaction giup han che du lieu mo coi tren MySQL MVP.
+        await manager.delete(GlassRegionPane, { glassRegionId: regionId });
+        await manager.delete(GlassRegion, { id: regionId, projectId, projectImageId: imageId });
+      });
+
+      return { deleted: true };
+    } catch (error) {
+      if (this.isExpectedAccessError(error)) {
+        throw error;
+      }
+      this.logAndThrow('deleteRegion', 'Unable to delete glass region.', error, { userId: user.sub, projectId, imageId, regionId });
     }
   }
 
@@ -371,6 +529,70 @@ export class ProjectsService {
     // VI: Luon xac minh owner project truoc, sau do moi chap nhan image thuoc dung project.
     await this.findAccessibleProject(user, projectId);
     return this.findProjectImage(projectId, imageId);
+  }
+
+  private async findRegion(projectId: number, imageId: number, regionId: number): Promise<GlassRegion> {
+    const region = await this.regionsRepository.findOne({
+      where: { id: regionId, projectId, projectImageId: imageId },
+      relations: { panes: true },
+      order: { panes: { sortOrder: 'ASC' } },
+    });
+
+    if (!region) {
+      throw new NotFoundException('Glass region was not found.');
+    }
+
+    return region;
+  }
+
+  private async assertNoRegionOverlap(
+    manager: EntityManager,
+    projectId: number,
+    imageId: number,
+    boundaryPoints: RegionPoint[],
+    excludedRegionId?: number,
+  ): Promise<void> {
+    const existingRegions = await manager.find(GlassRegion, {
+      where: { projectId, projectImageId: imageId },
+    });
+    const overlapsExisting = existingRegions
+      .filter((region) => region.id !== excludedRegionId)
+      .some((region) => polygonsOverlap(boundaryPoints, region.boundaryPointsJson));
+
+    if (overlapsExisting) {
+      throw new BadRequestException('Region overlaps another region.');
+    }
+  }
+
+  private findDuplicateBoundary(originalPoints: RegionPoint[], existingRegions: GlassRegion[]): RegionPoint[] | null {
+    for (const offset of DUPLICATE_OFFSETS) {
+      const shifted = originalPoints.map((point) => ({ x: point.x + offset.x, y: point.y + offset.y }));
+      if (!this.pointsAreInsideImage(shifted)) {
+        continue;
+      }
+
+      const candidate = validateBoundaryPoints(this.inferBoundaryTypeFromPoints(shifted), shifted);
+      const overlapsExisting = existingRegions.some((region) => polygonsOverlap(candidate, region.boundaryPointsJson));
+      if (!overlapsExisting) {
+        return candidate;
+      }
+    }
+
+    return null;
+  }
+
+  private pointsAreInsideImage(points: RegionPoint[]): boolean {
+    return points.every((point) => point.x >= 0 && point.x <= 1 && point.y >= 0 && point.y <= 1);
+  }
+
+  private inferBoundaryTypeFromPoints(points: RegionPoint[]): GlassRegionBoundaryType {
+    const [topLeft, topRight, bottomRight, bottomLeft] = points;
+    const isRectangle =
+      Math.abs(topLeft.y - topRight.y) < 0.001 &&
+      Math.abs(bottomLeft.y - bottomRight.y) < 0.001 &&
+      Math.abs(topLeft.x - bottomLeft.x) < 0.001 &&
+      Math.abs(topRight.x - bottomRight.x) < 0.001;
+    return isRectangle ? GlassRegionBoundaryType.Rectangle : GlassRegionBoundaryType.Quadrilateral;
   }
 
   private normalizeImageInput(

@@ -21,14 +21,14 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { PointerEvent, ReactNode } from 'react';
+import type { Dispatch, PointerEvent, ReactNode, SetStateAction } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link, useParams } from 'react-router-dom';
 import { useAuth } from '../auth/use-auth';
 import { GlassPreview } from '../catalog/GlassPreview';
 import { listActiveGlassProducts } from '../catalog/glass-catalog-api';
 import type { GlassProduct } from '../catalog/glass-catalog.types';
-import { createGlassRegion, getProject, listGlassRegions, listProjectImages, resolveProjectImageUrl } from '../projects/project-api';
+import { createGlassRegion, deleteGlassRegion, duplicateGlassRegion, getProject, listGlassRegions, listProjectImages, resolveProjectImageUrl, updateGlassRegion } from '../projects/project-api';
 import type { GlassRegion, GlassRegionBoundaryType, NormalizedPoint, Project, ProjectImage } from '../projects/project.types';
 import { clampPoint, draftOverlapsRegions, generatePreviewPanes, pointsToSvg } from '../projects/region-geometry';
 
@@ -39,7 +39,10 @@ type SaveStatus = 'idle' | 'saving' | 'saved' | 'error';
 type DragState =
   | { type: 'draw'; start: NormalizedPoint }
   | { type: 'corner'; index: number }
-  | { type: 'edge'; edgeIndex: number; start: NormalizedPoint; originalPoints: NormalizedPoint[] };
+  | { type: 'edge'; edgeIndex: number; start: NormalizedPoint; originalPoints: NormalizedPoint[] }
+  | { type: 'edit-corner'; index: number }
+  | { type: 'edit-edge'; edgeIndex: number; start: NormalizedPoint; originalPoints: NormalizedPoint[] }
+  | { type: 'edit-move'; start: NormalizedPoint; originalPoints: NormalizedPoint[] };
 
 interface DraftRegion {
   name: string;
@@ -48,13 +51,17 @@ interface DraftRegion {
   columns: number;
 }
 
+interface EditRegionDraft extends DraftRegion {
+  id: number;
+}
+
 const editorTools: Array<{ id: EditorTool; labelKey: string; icon: LucideIcon; disabled?: boolean }> = [
   { id: 'select', labelKey: 'editorEntry.tools.select', icon: MousePointer2 },
   { id: 'region', labelKey: 'editorEntry.tools.addRegion', icon: Plus },
   { id: 'rectangle', labelKey: 'editorEntry.tools.rectangle', icon: Square },
   { id: 'grid', labelKey: 'editorEntry.tools.grid', icon: Grid2X2 },
-  { id: 'copy', labelKey: 'editorEntry.tools.copy', icon: Copy, disabled: true },
-  { id: 'delete', labelKey: 'editorEntry.tools.delete', icon: Trash2, disabled: true },
+  { id: 'copy', labelKey: 'editorEntry.tools.copy', icon: Copy },
+  { id: 'delete', labelKey: 'editorEntry.tools.delete', icon: Trash2 },
   { id: 'glass', labelKey: 'editorEntry.tools.glass', icon: Gem, disabled: true },
   { id: 'export', labelKey: 'editorEntry.tools.export', icon: Download, disabled: true },
 ];
@@ -63,7 +70,7 @@ const mobileTools = editorTools.filter((tool) => ['select', 'region', 'rectangle
 const zoomOptions = [75, 100, 125];
 const defaultDraft: DraftRegion = { name: '', points: null, rows: 2, columns: 2 };
 
-// VI: Trang editor Sprint 7 cho tao region rectangle/quadrilateral va pane grid, chua gan kinh/render/export.
+// VI: Trang editor Sprint 8 cho tao/chinh sua region va pane grid, chua gan kinh/render/export.
 export function EditorEntryPage() {
   const { t } = useTranslation();
   const { projectId, imageId } = useParams();
@@ -82,6 +89,7 @@ export function EditorEntryPage() {
   const [activeTool, setActiveTool] = useState<EditorTool>('select');
   const [zoom, setZoom] = useState(100);
   const [draft, setDraft] = useState<DraftRegion>(defaultDraft);
+  const [editDraft, setEditDraft] = useState<EditRegionDraft | null>(null);
   const [dragState, setDragState] = useState<DragState | null>(null);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle');
   const [isLoading, setIsLoading] = useState(true);
@@ -89,15 +97,32 @@ export function EditorEntryPage() {
   const [regionMessageKey, setRegionMessageKey] = useState<string | null>(null);
 
   const selectedImage = useMemo(() => images.find((image) => image.id === numericImageId) ?? null, [images, numericImageId]);
+  const selectedRegion = useMemo(() => regions.find((region) => region.id === selectedRegionId) ?? null, [regions, selectedRegionId]);
   const imageUrl = resolveProjectImageUrl(selectedImage?.imageUrl ?? null);
   const draftPanes = useMemo(() => (draft.points ? generatePreviewPanes(draft.points, draft.rows, draft.columns) : []), [draft.columns, draft.points, draft.rows]);
   const draftOverlaps = useMemo(() => (draft.points ? draftOverlapsRegions(draft.points, regions) : false), [draft.points, regions]);
   const draftTooSmall = useMemo(() => (draft.points ? getRegionSize(draft.points).width < 0.01 || getRegionSize(draft.points).height < 0.01 : true), [draft.points]);
   const canSaveDraft = Boolean(draft.points && !draftTooSmall && !draftOverlaps && draft.rows >= 1 && draft.rows <= 20 && draft.columns >= 1 && draft.columns <= 20 && saveStatus !== 'saving');
+  const editPanes = useMemo(() => (editDraft?.points ? generatePreviewPanes(editDraft.points, editDraft.rows, editDraft.columns) : []), [editDraft]);
+  const editOverlaps = useMemo(() => (editDraft?.points ? draftOverlapsRegions(editDraft.points, regions, editDraft.id) : false), [editDraft, regions]);
+  const editTooSmall = useMemo(() => (editDraft?.points ? getRegionSize(editDraft.points).width < 0.01 || getRegionSize(editDraft.points).height < 0.01 : true), [editDraft]);
+  const editDirty = Boolean(editDraft && selectedRegion && regionDraftChanged(editDraft, selectedRegion));
+  const canSaveEdit = Boolean(editDraft?.points && editDirty && !editTooSmall && !editOverlaps && editDraft.rows >= 1 && editDraft.rows <= 20 && editDraft.columns >= 1 && editDraft.columns <= 20 && saveStatus !== 'saving');
+
+  useEffect(() => {
+    // VI: Khi chon region da luu, tao ban nhap edit rieng de co the cancel ve state da luu.
+    if (!selectedRegion) {
+      setEditDraft(null);
+      return;
+    }
+
+    setEditDraft(regionToEditDraft(selectedRegion));
+    setSaveStatus('idle');
+  }, [selectedRegion]);
 
   const loadGlassProducts = useCallback(async () => {
     try {
-      // VI: Catalog kinh chi la phu tro trong Sprint 7, loi catalog khong chan canvas/region.
+      // VI: Catalog kinh chi la phu tro trong editor, loi catalog khong chan canvas/region.
       setGlassLoadStatus('loading');
       const productResults = await listActiveGlassProducts();
       setGlassProducts(productResults);
@@ -182,6 +207,8 @@ export function EditorEntryPage() {
 
   const startDraft = () => {
     setActiveTool('region');
+    setSelectedRegionId(null);
+    setEditDraft(null);
     setSaveStatus('idle');
     setRegionMessageKey('editorEntry.regions.drawHint');
     setDraft((current) => ({ ...current, name: current.name || t('editorEntry.regions.defaultName', { count: regions.length + 1 }) }));
@@ -227,6 +254,97 @@ export function EditorEntryPage() {
     setActiveTool(tool);
     if (tool === 'region' || tool === 'rectangle') {
       startDraft();
+      return;
+    }
+
+    if (tool === 'copy') {
+      void duplicateSelectedRegion();
+      return;
+    }
+
+    if (tool === 'delete') {
+      void deleteSelectedRegion();
+    }
+  };
+
+  const saveEdit = async () => {
+    if (!accessToken || !editDraft?.points || !selectedRegion || !canSaveEdit) {
+      return;
+    }
+
+    try {
+      setSaveStatus('saving');
+      const updatedRegion = await updateGlassRegion(accessToken, numericProjectId, numericImageId, editDraft.id, {
+        name: editDraft.name.trim() || selectedRegion.name,
+        boundaryType: getBoundaryType(editDraft.points),
+        boundaryPoints: editDraft.points,
+        gridMode: 'rows_columns',
+        rows: editDraft.rows,
+        columns: editDraft.columns,
+      });
+      setRegions((current) => current.map((region) => (region.id === updatedRegion.id ? updatedRegion : region)));
+      setSelectedRegionId(updatedRegion.id);
+      setEditDraft(regionToEditDraft(updatedRegion));
+      setSaveStatus('saved');
+      setRegionMessageKey('editorEntry.regions.updated');
+    } catch (error) {
+      logEditorError('updateRegion', error, { projectId: numericProjectId, imageId: numericImageId });
+      setSaveStatus('error');
+      setRegionMessageKey('editorEntry.regions.updateFailed');
+    }
+  };
+
+  const cancelEdit = () => {
+    if (selectedRegion) {
+      setEditDraft(regionToEditDraft(selectedRegion));
+    }
+    setDragState(null);
+    setSaveStatus('idle');
+    setRegionMessageKey(null);
+  };
+
+  const duplicateSelectedRegion = async () => {
+    if (!accessToken || !selectedRegion) {
+      return;
+    }
+
+    try {
+      setSaveStatus('saving');
+      const duplicatedRegion = await duplicateGlassRegion(accessToken, numericProjectId, numericImageId, selectedRegion.id);
+      setRegions((current) => [...current, duplicatedRegion]);
+      setSelectedRegionId(duplicatedRegion.id);
+      setEditDraft(regionToEditDraft(duplicatedRegion));
+      setSaveStatus('saved');
+      setRegionMessageKey('editorEntry.regions.duplicated');
+    } catch (error) {
+      logEditorError('duplicateRegion', error, { projectId: numericProjectId, imageId: numericImageId });
+      setSaveStatus('error');
+      setRegionMessageKey('editorEntry.regions.duplicateFailed');
+    }
+  };
+
+  const deleteSelectedRegion = async () => {
+    if (!accessToken || !selectedRegion) {
+      return;
+    }
+
+    const confirmed = window.confirm(t('editorEntry.regions.confirmDelete', { name: selectedRegion.name }));
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      setSaveStatus('saving');
+      await deleteGlassRegion(accessToken, numericProjectId, numericImageId, selectedRegion.id);
+      setRegions((current) => current.filter((region) => region.id !== selectedRegion.id));
+      setSelectedRegionId(null);
+      setEditDraft(null);
+      setSaveStatus('saved');
+      setRegionMessageKey('editorEntry.regions.deleted');
+    } catch (error) {
+      logEditorError('deleteRegion', error, { projectId: numericProjectId, imageId: numericImageId });
+      setSaveStatus('error');
+      setRegionMessageKey('editorEntry.regions.deleteFailed');
     }
   };
 
@@ -262,6 +380,8 @@ export function EditorEntryPage() {
           onAddRegion={startDraft}
           onRetry={loadRegions}
           onSelectRegion={setSelectedRegionId}
+          onDuplicateRegion={duplicateSelectedRegion}
+          onDeleteRegion={deleteSelectedRegion}
         />
         <main className="min-w-0">
           <FloatingToolBar activeTool={activeTool} onSelectTool={handleToolSelect} />
@@ -271,16 +391,24 @@ export function EditorEntryPage() {
             zoom={zoom}
             regions={regions}
             selectedRegionId={selectedRegionId}
+            editDraft={editDraft}
+            editPanes={editPanes}
             draft={draft}
             draftPanes={draftPanes}
             dragState={dragState}
             activeTool={activeTool}
             onZoomChange={setZoom}
             onDraftChange={setDraft}
+            onEditDraftChange={setEditDraft}
             onDragStateChange={setDragState}
             onSelectRegion={setSelectedRegionId}
           />
           <MobileInspector
+            selectedRegion={selectedRegion}
+            editDraft={editDraft}
+            canSaveEdit={canSaveEdit}
+            editOverlaps={editOverlaps}
+            editTooSmall={editTooSmall}
             draft={draft}
             canSaveDraft={canSaveDraft}
             draftOverlaps={draftOverlaps}
@@ -294,9 +422,19 @@ export function EditorEntryPage() {
             onSelectGlass={setSelectedGlassId}
             onSaveDraft={saveDraft}
             onCancelDraft={cancelDraft}
+            onEditDraftChange={setEditDraft}
+            onSaveEdit={saveEdit}
+            onCancelEdit={cancelEdit}
+            onDuplicateRegion={duplicateSelectedRegion}
+            onDeleteRegion={deleteSelectedRegion}
           />
         </main>
         <InspectorPanel
+          selectedRegion={selectedRegion}
+          editDraft={editDraft}
+          canSaveEdit={canSaveEdit}
+          editOverlaps={editOverlaps}
+          editTooSmall={editTooSmall}
           draft={draft}
           canSaveDraft={canSaveDraft}
           draftOverlaps={draftOverlaps}
@@ -310,6 +448,11 @@ export function EditorEntryPage() {
           onSelectGlass={setSelectedGlassId}
           onSaveDraft={saveDraft}
           onCancelDraft={cancelDraft}
+          onEditDraftChange={setEditDraft}
+          onSaveEdit={saveEdit}
+          onCancelEdit={cancelEdit}
+          onDuplicateRegion={duplicateSelectedRegion}
+          onDeleteRegion={deleteSelectedRegion}
         />
       </div>
 
@@ -413,12 +556,15 @@ function EditorCanvas({
   zoom,
   regions,
   selectedRegionId,
+  editDraft,
+  editPanes,
   draft,
   draftPanes,
   dragState,
   activeTool,
   onZoomChange,
   onDraftChange,
+  onEditDraftChange,
   onDragStateChange,
   onSelectRegion,
 }: {
@@ -427,12 +573,15 @@ function EditorCanvas({
   zoom: number;
   regions: GlassRegion[];
   selectedRegionId: number | null;
+  editDraft: EditRegionDraft | null;
+  editPanes: Array<{ paneCode: string; points: NormalizedPoint[] }>;
   draft: DraftRegion;
   draftPanes: Array<{ paneCode: string; points: NormalizedPoint[] }>;
   dragState: DragState | null;
   activeTool: EditorTool;
   onZoomChange: (zoom: number) => void;
   onDraftChange: (draft: DraftRegion | ((current: DraftRegion) => DraftRegion)) => void;
+  onEditDraftChange: Dispatch<SetStateAction<EditRegionDraft | null>>;
   onDragStateChange: (state: DragState | null) => void;
   onSelectRegion: (regionId: number | null) => void;
 }) {
@@ -466,6 +615,46 @@ function EditorCanvas({
           return current;
         }
         return { ...current, points: current.points.map((existing, index) => (index === dragState.index ? point : existing)) };
+      });
+      return;
+    }
+
+    if (dragState.type === 'edit-corner') {
+      onEditDraftChange((current) => {
+        if (!current?.points) {
+          return current;
+        }
+        return { ...current, points: current.points.map((existing, index) => (index === dragState.index ? point : existing)) };
+      });
+      return;
+    }
+
+    if (dragState.type === 'edit-move') {
+      onEditDraftChange((current) => {
+        if (!current?.points) {
+          return current;
+        }
+        const delta = { x: point.x - dragState.start.x, y: point.y - dragState.start.y };
+        const moved = dragState.originalPoints.map((existing) => ({ x: existing.x + delta.x, y: existing.y + delta.y }));
+        return pointsInsideUnitSquare(moved) ? { ...current, points: moved } : current;
+      });
+      return;
+    }
+
+    if (dragState.type === 'edit-edge') {
+      onEditDraftChange((current) => {
+        if (!current?.points) {
+          return current;
+        }
+        const delta = { x: point.x - dragState.start.x, y: point.y - dragState.start.y };
+        const firstIndex = dragState.edgeIndex;
+        const secondIndex = (dragState.edgeIndex + 1) % dragState.originalPoints.length;
+        return {
+          ...current,
+          points: dragState.originalPoints.map((existing, index) =>
+            index === firstIndex || index === secondIndex ? clampPoint({ x: existing.x + delta.x, y: existing.y + delta.y }) : existing,
+          ),
+        };
       });
       return;
     }
@@ -520,7 +709,40 @@ function EditorCanvas({
               onPointerCancel={handlePointerUp}
             >
               {regions.map((region, index) => (
-                <RegionShape key={region.id} region={region} index={index} isSelected={selectedRegionId === region.id} onSelect={() => onSelectRegion(region.id)} />
+                <RegionShape
+                  key={region.id}
+                  region={region}
+                  index={index}
+                  isSelected={selectedRegionId === region.id}
+                  editPoints={editDraft?.id === region.id ? editDraft.points : null}
+                  editPanes={editDraft?.id === region.id ? editPanes : []}
+                  onSelect={() => onSelectRegion(region.id)}
+                  onMovePointerDown={(event) => {
+                    if (editDraft?.id !== region.id || !editDraft.points) {
+                      return;
+                    }
+                    event.stopPropagation();
+                    onSelectRegion(region.id);
+                    onDragStateChange({ type: 'edit-move', start: getPointerPoint(event), originalPoints: editDraft.points });
+                    event.currentTarget.ownerSVGElement?.setPointerCapture(event.pointerId);
+                  }}
+                  onCornerPointerDown={(event, cornerIndex) => {
+                    if (editDraft?.id !== region.id) {
+                      return;
+                    }
+                    event.stopPropagation();
+                    onDragStateChange({ type: 'edit-corner', index: cornerIndex });
+                    event.currentTarget.ownerSVGElement?.setPointerCapture(event.pointerId);
+                  }}
+                  onEdgePointerDown={(event, edgeIndex) => {
+                    if (editDraft?.id !== region.id || !editDraft.points) {
+                      return;
+                    }
+                    event.stopPropagation();
+                    onDragStateChange({ type: 'edit-edge', edgeIndex, start: getPointerPoint(event), originalPoints: editDraft.points });
+                    event.currentTarget.ownerSVGElement?.setPointerCapture(event.pointerId);
+                  }}
+                />
               ))}
               {draft.points ? (
                 <DraftShape
@@ -570,8 +792,30 @@ function EditorCanvas({
   );
 }
 
-function RegionShape({ region, index, isSelected, onSelect }: { region: GlassRegion; index: number; isSelected: boolean; onSelect: () => void }) {
-  const hueClass = ['#2563eb', '#16a34a', '#9333ea', '#f97316', '#0891b2'][index % 5];
+function RegionShape({
+  region,
+  index,
+  isSelected,
+  editPoints,
+  editPanes,
+  onSelect,
+  onMovePointerDown,
+  onCornerPointerDown,
+  onEdgePointerDown,
+}: {
+  region: GlassRegion;
+  index: number;
+  isSelected: boolean;
+  editPoints: NormalizedPoint[] | null;
+  editPanes: Array<{ paneCode: string; points: NormalizedPoint[] }>;
+  onSelect: () => void;
+  onMovePointerDown: (event: PointerEvent<SVGPolygonElement>) => void;
+  onCornerPointerDown: (event: PointerEvent<SVGCircleElement>, index: number) => void;
+  onEdgePointerDown: (event: PointerEvent<SVGCircleElement>, edgeIndex: number) => void;
+}) {
+  const regionColor = ['#2563eb', '#16a34a', '#9333ea', '#f97316', '#0891b2'][index % 5];
+  const points = editPoints ?? region.boundaryPointsJson;
+  const panes = editPoints ? editPanes : region.panes.map((pane) => ({ paneCode: String(pane.id), points: pane.panePointsJson }));
 
   return (
     <g
@@ -581,29 +825,39 @@ function RegionShape({ region, index, isSelected, onSelect }: { region: GlassReg
         onSelect();
       }}
     >
-      {region.panes.map((pane) => (
-        <polygon key={pane.id} points={pointsToSvg(pane.panePointsJson)} fill="none" stroke={hueClass} strokeDasharray="0.8 0.8" strokeOpacity="0.55" strokeWidth="0.18" vectorEffect="non-scaling-stroke" />
+      {panes.map((pane) => (
+        <polygon key={pane.paneCode} points={pointsToSvg(pane.points)} fill="none" stroke={regionColor} strokeDasharray="0.8 0.8" strokeOpacity="0.55" strokeWidth="0.18" vectorEffect="non-scaling-stroke" />
       ))}
-      <polygon points={pointsToSvg(region.boundaryPointsJson)} fill="rgba(255,255,255,0.02)" stroke={hueClass} strokeWidth={isSelected ? '0.7' : '0.45'} vectorEffect="non-scaling-stroke" />
-      {isSelected ? <SavedRegionHandles points={region.boundaryPointsJson} color={hueClass} /> : null}
-      <text x={getCenter(region.boundaryPointsJson).x * 100} y={getCenter(region.boundaryPointsJson).y * 100} textAnchor="middle" className="fill-white text-[3px] font-bold" paintOrder="stroke" stroke={hueClass} strokeWidth="0.6">
+      <polygon points={pointsToSvg(points)} fill="rgba(255,255,255,0.02)" stroke={regionColor} strokeWidth={isSelected ? '0.7' : '0.45'} vectorEffect="non-scaling-stroke" onPointerDown={onMovePointerDown} />
+      {isSelected ? <SavedRegionHandles points={points} color={regionColor} onCornerPointerDown={onCornerPointerDown} onEdgePointerDown={onEdgePointerDown} /> : null}
+      <text x={getCenter(points).x * 100} y={getCenter(points).y * 100} textAnchor="middle" className="pointer-events-none fill-white text-[3px] font-bold" paintOrder="stroke" stroke={regionColor} strokeWidth="0.6">
         {index + 1}
       </text>
     </g>
   );
 }
 
-function SavedRegionHandles({ points, color }: { points: NormalizedPoint[]; color: string }) {
-  // VI: Handle nay chi la trang thai selected-readonly trong Sprint 7; edit saved region de danh Sprint 8.
+function SavedRegionHandles({
+  points,
+  color,
+  onCornerPointerDown,
+  onEdgePointerDown,
+}: {
+  points: NormalizedPoint[];
+  color: string;
+  onCornerPointerDown: (event: PointerEvent<SVGCircleElement>, index: number) => void;
+  onEdgePointerDown: (event: PointerEvent<SVGCircleElement>, edgeIndex: number) => void;
+}) {
+  // VI: Handle Sprint 8 cho phep reshape region da luu, backend van validate lai overlap khi save.
   return (
     <g>
       {points.map((point, index) => (
-        <circle key={`saved-corner-${index}`} cx={point.x * 100} cy={point.y * 100} r="1" fill="white" stroke={color} strokeWidth="0.32" vectorEffect="non-scaling-stroke" />
+        <circle key={`saved-corner-${index}`} cx={point.x * 100} cy={point.y * 100} r="1.1" className="cursor-grab" fill="white" stroke={color} strokeWidth="0.32" vectorEffect="non-scaling-stroke" onPointerDown={(event) => onCornerPointerDown(event, index)} />
       ))}
       {points.map((point, index) => {
         const next = points[(index + 1) % points.length];
         const midpoint = { x: (point.x + next.x) / 2, y: (point.y + next.y) / 2 };
-        return <circle key={`saved-edge-${index}`} cx={midpoint.x * 100} cy={midpoint.y * 100} r="0.72" fill={color} stroke="white" strokeWidth="0.25" vectorEffect="non-scaling-stroke" />;
+        return <circle key={`saved-edge-${index}`} cx={midpoint.x * 100} cy={midpoint.y * 100} r="0.85" className="cursor-move" fill={color} stroke="white" strokeWidth="0.25" vectorEffect="non-scaling-stroke" onPointerDown={(event) => onEdgePointerDown(event, index)} />;
       })}
     </g>
   );
@@ -648,6 +902,8 @@ function RegionPanel({
   onAddRegion,
   onRetry,
   onSelectRegion,
+  onDuplicateRegion,
+  onDeleteRegion,
 }: {
   regions: GlassRegion[];
   status: RegionLoadStatus;
@@ -656,6 +912,8 @@ function RegionPanel({
   onAddRegion: () => void;
   onRetry: () => void;
   onSelectRegion: (regionId: number) => void;
+  onDuplicateRegion: () => void;
+  onDeleteRegion: () => void;
 }) {
   const { t } = useTranslation();
 
@@ -693,20 +951,29 @@ function RegionPanel({
       {regions.length > 0 ? (
         <div className="mt-4 space-y-3">
           {regions.map((region, index) => (
-            <button
-              key={region.id}
-              className={`w-full rounded-md border px-3 py-3 text-left ${selectedRegionId === region.id ? 'border-brand-red bg-red-50' : 'border-neutral-200 bg-white'}`}
-              type="button"
-              onClick={() => onSelectRegion(region.id)}
-            >
-              <div className="flex items-center justify-between gap-2">
-                <p className="font-semibold text-neutral-950">{region.name}</p>
-                <span className="rounded-full bg-blue-50 px-2 py-1 text-xs font-semibold text-blue-700">{String(index + 1).padStart(2, '0')}</span>
-              </div>
-              <p className="mt-2 text-xs text-neutral-500">{t('editorEntry.regions.paneCount', { count: region.panes.length })}</p>
-              <p className="mt-1 text-xs text-neutral-500">{t('editorEntry.regions.gridValue', { rows: region.rows ?? 1, columns: region.columns ?? 1 })}</p>
-              {selectedRegionId === region.id ? <p className="mt-2 rounded bg-white/80 px-2 py-1 text-xs font-semibold text-red-700">{t('editorEntry.regions.readonlySelected')}</p> : null}
-            </button>
+            <div key={region.id} className={`rounded-md border px-3 py-3 ${selectedRegionId === region.id ? 'border-brand-red bg-red-50' : 'border-neutral-200 bg-white'}`}>
+              <button className="w-full text-left" type="button" onClick={() => onSelectRegion(region.id)}>
+                <div className="flex items-center justify-between gap-2">
+                  <p className="font-semibold text-neutral-950">{region.name}</p>
+                  <span className="rounded-full bg-blue-50 px-2 py-1 text-xs font-semibold text-blue-700">{String(index + 1).padStart(2, '0')}</span>
+                </div>
+                <p className="mt-2 text-xs text-neutral-500">{t('editorEntry.regions.paneCount', { count: region.panes.length })}</p>
+                <p className="mt-1 text-xs text-neutral-500">{t('editorEntry.regions.gridValue', { rows: region.rows ?? 1, columns: region.columns ?? 1 })}</p>
+                {selectedRegionId === region.id ? <p className="mt-2 rounded bg-white/80 px-2 py-1 text-xs font-semibold text-red-700">{t('editorEntry.regions.editSelected')}</p> : null}
+              </button>
+              {selectedRegionId === region.id ? (
+                <div className="mt-3 grid grid-cols-2 gap-2">
+                  <button className="inline-flex min-h-9 items-center justify-center gap-2 rounded-md border border-neutral-200 bg-white px-2 text-xs font-semibold text-neutral-700" type="button" onClick={onDuplicateRegion}>
+                    <Copy size={14} />
+                    {t('editorEntry.regions.duplicate')}
+                  </button>
+                  <button className="inline-flex min-h-9 items-center justify-center gap-2 rounded-md border border-red-100 bg-white px-2 text-xs font-semibold text-red-700" type="button" onClick={onDeleteRegion}>
+                    <Trash2 size={14} />
+                    {t('editorEntry.regions.delete')}
+                  </button>
+                </div>
+              ) : null}
+            </div>
           ))}
         </div>
       ) : null}
@@ -720,6 +987,11 @@ function RegionPanel({
 }
 
 type InspectorProps = GlassSelectorProps & {
+  selectedRegion: GlassRegion | null;
+  editDraft: EditRegionDraft | null;
+  canSaveEdit: boolean;
+  editOverlaps: boolean;
+  editTooSmall: boolean;
   draft: DraftRegion;
   canSaveDraft: boolean;
   draftOverlaps: boolean;
@@ -728,12 +1000,17 @@ type InspectorProps = GlassSelectorProps & {
   onDraftChange: (draft: DraftRegion | ((current: DraftRegion) => DraftRegion)) => void;
   onSaveDraft: () => void;
   onCancelDraft: () => void;
+  onEditDraftChange: Dispatch<SetStateAction<EditRegionDraft | null>>;
+  onSaveEdit: () => void;
+  onCancelEdit: () => void;
+  onDuplicateRegion: () => void;
+  onDeleteRegion: () => void;
 };
 
 function InspectorPanel(props: InspectorProps) {
   return (
     <aside className="hidden space-y-3 lg:block">
-      <RegionSettingsPanel {...props} />
+      {props.editDraft ? <SelectedRegionPanel {...props} /> : <RegionSettingsPanel {...props} />}
       <GlassSelectorPanel {...props} />
       <ExportPanel />
     </aside>
@@ -756,14 +1033,96 @@ function MobileInspector(props: InspectorProps) {
       <div className="mx-auto h-1 w-14 rounded-full bg-neutral-200" />
       <div className="flex items-start justify-between gap-3">
         <div>
-          <p className="inline-flex rounded-md bg-blue-50 px-3 py-1 text-sm font-semibold text-blue-700">{t('editorEntry.mobileSheet.regionCode')}</p>
-          <h2 className="mt-3 text-lg font-semibold text-neutral-950">{t('editorEntry.mobileSheet.title')}</h2>
-          <p className="mt-1 text-sm text-neutral-600">{t('editorEntry.mobileSheet.description')}</p>
+          <p className="inline-flex rounded-md bg-blue-50 px-3 py-1 text-sm font-semibold text-blue-700">{props.editDraft ? t('editorEntry.mobileSheet.editCode') : t('editorEntry.mobileSheet.regionCode')}</p>
+          <h2 className="mt-3 text-lg font-semibold text-neutral-950">{props.editDraft ? t('editorEntry.regions.editTitle') : t('editorEntry.mobileSheet.title')}</h2>
+          <p className="mt-1 text-sm text-neutral-600">{props.editDraft ? t('editorEntry.regions.editDescription') : t('editorEntry.mobileSheet.description')}</p>
         </div>
-        <span className="rounded-md bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-800">{t('editorEntry.mobileSheet.placeholderStatus')}</span>
+        <span className="rounded-md bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-800">{props.editDraft ? t('editorEntry.regions.unsavedChanges') : t('editorEntry.mobileSheet.placeholderStatus')}</span>
       </div>
-      <RegionSettingsPanel compact {...props} />
+      {props.editDraft ? <SelectedRegionPanel compact {...props} /> : <RegionSettingsPanel compact {...props} />}
       <GlassSelectorPanel compact {...props} />
+    </section>
+  );
+}
+
+function SelectedRegionPanel({
+  selectedRegion,
+  editDraft,
+  canSaveEdit,
+  editOverlaps,
+  editTooSmall,
+  saveStatus,
+  onEditDraftChange,
+  onSaveEdit,
+  onCancelEdit,
+  onDuplicateRegion,
+  onDeleteRegion,
+  compact = false,
+}: InspectorProps & { compact?: boolean }) {
+  const { t } = useTranslation();
+
+  if (!selectedRegion || !editDraft) {
+    return (
+      <section className={`rounded-md border border-neutral-200 bg-white p-4 shadow-sm ${compact ? 'border-neutral-100 shadow-none' : ''}`}>
+        <h2 className="text-base font-semibold text-neutral-950">{t('editorEntry.regions.editTitle')}</h2>
+        <p className="mt-2 text-sm text-neutral-600">{t('editorEntry.regions.noSelectionHelp')}</p>
+      </section>
+    );
+  }
+
+  const paneCount = editDraft.rows * editDraft.columns;
+
+  return (
+    <section className={`rounded-md border border-neutral-200 bg-white p-4 shadow-sm ${compact ? 'border-neutral-100 shadow-none' : ''}`}>
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <h2 className="text-base font-semibold text-neutral-950">{t('editorEntry.regions.editTitle')}</h2>
+          <p className="mt-1 text-sm text-neutral-600">{t('editorEntry.regions.editDescription')}</p>
+        </div>
+        <span className="rounded-md bg-stone-100 px-3 py-2 text-xs font-semibold text-neutral-700">{t('editorEntry.regions.unassignedGlass')}</span>
+      </div>
+
+      <div className="mt-4 space-y-3">
+        <label className="block text-sm font-semibold text-neutral-800">
+          {t('editorEntry.regions.nameLabel')}
+          <input
+            className="mt-2 w-full rounded-md border border-neutral-300 px-3 py-2 text-sm outline-none focus:border-brand-red"
+            value={editDraft.name}
+            onChange={(event) => onEditDraftChange((current) => (current ? { ...current, name: event.target.value } : current))}
+            placeholder={t('editorEntry.regions.namePlaceholder')}
+          />
+        </label>
+        <div className="grid grid-cols-2 gap-3">
+          <NumberField label={t('editorEntry.regions.rows')} value={editDraft.rows} onChange={(value) => onEditDraftChange((current) => (current ? { ...current, rows: value } : current))} />
+          <NumberField label={t('editorEntry.regions.columns')} value={editDraft.columns} onChange={(value) => onEditDraftChange((current) => (current ? { ...current, columns: value } : current))} />
+        </div>
+        <div className="grid grid-cols-3 gap-2">
+          <MetricBox labelKey="editorEntry.inspector.geometry" value={editDraft.points ? t(`editorEntry.boundaryTypes.${getBoundaryType(editDraft.points)}`) : t('editorEntry.inspector.noSelection')} />
+          <MetricBox labelKey="editorEntry.inspector.grid" value={t('editorEntry.regions.gridValue', { rows: editDraft.rows, columns: editDraft.columns })} />
+          <MetricBox labelKey="editorEntry.inspector.area" value={t('editorEntry.regions.paneCount', { count: paneCount })} />
+        </div>
+        {editOverlaps ? <p className="rounded-md border border-red-100 bg-red-50 px-3 py-2 text-sm font-semibold text-red-800">{t('editorEntry.regions.overlapWarning')}</p> : null}
+        {editTooSmall ? <p className="rounded-md border border-amber-100 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-800">{t('editorEntry.regions.tooSmall')}</p> : null}
+        <p className="rounded-md bg-stone-100 px-3 py-2 text-sm text-neutral-700">{t('editorEntry.regions.editHint')}</p>
+        <div className="grid grid-cols-2 gap-2">
+          <button className="min-h-11 rounded-md border border-neutral-300 px-3 py-2 text-sm font-semibold text-neutral-700" type="button" onClick={onCancelEdit}>
+            {t('editorEntry.regions.cancelEdit')}
+          </button>
+          <button className="min-h-11 rounded-md bg-brand-red px-3 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60" type="button" disabled={!canSaveEdit} onClick={onSaveEdit}>
+            {saveStatus === 'saving' ? t('editorEntry.regions.saving') : t('editorEntry.regions.saveEdit')}
+          </button>
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <button className="inline-flex min-h-11 items-center justify-center gap-2 rounded-md border border-neutral-300 px-3 py-2 text-sm font-semibold text-neutral-700" type="button" onClick={onDuplicateRegion}>
+            <Copy size={16} />
+            {t('editorEntry.regions.duplicate')}
+          </button>
+          <button className="inline-flex min-h-11 items-center justify-center gap-2 rounded-md border border-red-200 px-3 py-2 text-sm font-semibold text-red-700" type="button" onClick={onDeleteRegion}>
+            <Trash2 size={16} />
+            {t('editorEntry.regions.delete')}
+          </button>
+        </div>
+      </div>
     </section>
   );
 }
@@ -966,7 +1325,7 @@ function EditorStateCard({ message, action }: { message: string; action?: ReactN
   );
 }
 
-function getPointerPoint(event: PointerEvent<SVGSVGElement | SVGCircleElement>): NormalizedPoint {
+function getPointerPoint(event: PointerEvent<SVGElement>): NormalizedPoint {
   const svg = event.currentTarget instanceof SVGSVGElement ? event.currentTarget : event.currentTarget.ownerSVGElement;
   const rect = svg?.getBoundingClientRect();
   if (!rect || rect.width === 0 || rect.height === 0) {
@@ -1009,6 +1368,35 @@ function getRegionSize(points: NormalizedPoint[]): { width: number; height: numb
   return { width: Math.max(...xs) - Math.min(...xs), height: Math.max(...ys) - Math.min(...ys) };
 }
 
+function regionToEditDraft(region: GlassRegion): EditRegionDraft {
+  // VI: Tach ban nhap edit khoi region da luu de cancel co the phuc hoi dung state backend.
+  return {
+    id: region.id,
+    name: region.name,
+    points: region.boundaryPointsJson.map((point) => ({ ...point })),
+    rows: region.rows ?? 1,
+    columns: region.columns ?? 1,
+  };
+}
+
+function regionDraftChanged(draft: EditRegionDraft, region: GlassRegion): boolean {
+  // VI: Chi gui PATCH khi name/grid/geometry that su thay doi de tranh regenerate pane khong can thiet.
+  return draft.name !== region.name || draft.rows !== (region.rows ?? 1) || draft.columns !== (region.columns ?? 1) || !pointsEqual(draft.points ?? [], region.boundaryPointsJson);
+}
+
+function pointsEqual(left: NormalizedPoint[], right: NormalizedPoint[]): boolean {
+  if (left.length !== right.length) {
+    return false;
+  }
+
+  return left.every((point, index) => Math.abs(point.x - right[index].x) < 0.0005 && Math.abs(point.y - right[index].y) < 0.0005);
+}
+
+function pointsInsideUnitSquare(points: NormalizedPoint[]): boolean {
+  // VI: Move region da luu chi duoc chap nhan neu toan bo diem van nam trong anh normalized 0..1.
+  return points.every((point) => point.x >= 0 && point.x <= 1 && point.y >= 0 && point.y <= 1);
+}
+
 function logEditorError(action: string, error: unknown, context: { projectId?: number; imageId?: number } = {}) {
   // VI: Log loi editor voi context an toan, khong dump token/request/raw response.
   console.error({
@@ -1017,6 +1405,5 @@ function logEditorError(action: string, error: unknown, context: { projectId?: n
     ...context,
     message: 'Editor request failed',
     errorName: error instanceof Error ? error.name : 'UnknownError',
-    errorMessage: error instanceof Error ? error.message : undefined,
   });
 }

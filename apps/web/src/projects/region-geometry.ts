@@ -28,8 +28,8 @@ export function generatePreviewPanes(points: NormalizedPoint[], rows: number, co
 }
 
 // VI: Check chong lan phia client de canh bao som; backend van check lai truoc khi luu.
-export function draftOverlapsRegions(points: NormalizedPoint[], regions: GlassRegion[]): boolean {
-  return regions.some((region) => polygonsOverlap(points, region.boundaryPointsJson));
+export function draftOverlapsRegions(points: NormalizedPoint[], regions: GlassRegion[], excludedRegionId?: number): boolean {
+  return regions.filter((region) => region.id !== excludedRegionId).some((region) => polygonsOverlap(points, region.boundaryPointsJson));
 }
 
 export function clampPoint(point: NormalizedPoint): NormalizedPoint {

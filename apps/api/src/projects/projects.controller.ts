@@ -7,6 +7,7 @@ import { CreateGlassRegionDto } from './dto/create-glass-region.dto';
 import { CreateProjectImageDto } from './dto/create-project-image.dto';
 import { CreateProjectDto } from './dto/create-project.dto';
 import { ListProjectsDto } from './dto/list-projects.dto';
+import { UpdateGlassRegionDto } from './dto/update-glass-region.dto';
 import { UpdateProjectImageDto } from './dto/update-project-image.dto';
 import { UpdateProjectDto } from './dto/update-project.dto';
 import { UploadProjectImageDto } from './dto/upload-project-image.dto';
@@ -84,6 +85,48 @@ export class ProjectsController {
     @Body() dto: CreateGlassRegionDto,
   ) {
     return this.projectsService.createRegion(user, projectId, imageId, dto);
+  }
+
+  @Get(':projectId/images/:imageId/regions/:regionId')
+  getRegion(
+    @CurrentUser() user: JwtPayload,
+    @Param('projectId', ParseIntPipe) projectId: number,
+    @Param('imageId', ParseIntPipe) imageId: number,
+    @Param('regionId', ParseIntPipe) regionId: number,
+  ) {
+    return this.projectsService.getRegion(user, projectId, imageId, regionId);
+  }
+
+  @Patch(':projectId/images/:imageId/regions/:regionId')
+  // VI: Cap nhat geometry/grid region; service regenerate pane va check overlap tren backend.
+  updateRegion(
+    @CurrentUser() user: JwtPayload,
+    @Param('projectId', ParseIntPipe) projectId: number,
+    @Param('imageId', ParseIntPipe) imageId: number,
+    @Param('regionId', ParseIntPipe) regionId: number,
+    @Body() dto: UpdateGlassRegionDto,
+  ) {
+    return this.projectsService.updateRegion(user, projectId, imageId, regionId, dto);
+  }
+
+  @Delete(':projectId/images/:imageId/regions/:regionId')
+  deleteRegion(
+    @CurrentUser() user: JwtPayload,
+    @Param('projectId', ParseIntPipe) projectId: number,
+    @Param('imageId', ParseIntPipe) imageId: number,
+    @Param('regionId', ParseIntPipe) regionId: number,
+  ) {
+    return this.projectsService.deleteRegion(user, projectId, imageId, regionId);
+  }
+
+  @Post(':projectId/images/:imageId/regions/:regionId/duplicate')
+  duplicateRegion(
+    @CurrentUser() user: JwtPayload,
+    @Param('projectId', ParseIntPipe) projectId: number,
+    @Param('imageId', ParseIntPipe) imageId: number,
+    @Param('regionId', ParseIntPipe) regionId: number,
+  ) {
+    return this.projectsService.duplicateRegion(user, projectId, imageId, regionId);
   }
 
   @Patch(':projectId/images/:imageId')
