@@ -3,6 +3,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { JwtPayload } from '../auth/auth.types';
+import { AssignGlassProductDto } from './dto/assign-glass-product.dto';
 import { CreateGlassRegionDto } from './dto/create-glass-region.dto';
 import { CreateProjectImageDto } from './dto/create-project-image.dto';
 import { CreateProjectDto } from './dto/create-project.dto';
@@ -95,6 +96,28 @@ export class ProjectsController {
     @Param('regionId', ParseIntPipe) regionId: number,
   ) {
     return this.projectsService.getRegion(user, projectId, imageId, regionId);
+  }
+
+  @Patch(':projectId/images/:imageId/regions/:regionId/glass')
+  // VI: Gan mau kinh da active cho region; service kiem tra owner va khong nhan tham so vat lieu tu client.
+  assignRegionGlass(
+    @CurrentUser() user: JwtPayload,
+    @Param('projectId', ParseIntPipe) projectId: number,
+    @Param('imageId', ParseIntPipe) imageId: number,
+    @Param('regionId', ParseIntPipe) regionId: number,
+    @Body() dto: AssignGlassProductDto,
+  ) {
+    return this.projectsService.assignRegionGlass(user, projectId, imageId, regionId, dto);
+  }
+
+  @Delete(':projectId/images/:imageId/regions/:regionId/glass')
+  clearRegionGlass(
+    @CurrentUser() user: JwtPayload,
+    @Param('projectId', ParseIntPipe) projectId: number,
+    @Param('imageId', ParseIntPipe) imageId: number,
+    @Param('regionId', ParseIntPipe) regionId: number,
+  ) {
+    return this.projectsService.clearRegionGlass(user, projectId, imageId, regionId);
   }
 
   @Patch(':projectId/images/:imageId/regions/:regionId')

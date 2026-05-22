@@ -150,7 +150,7 @@ export function deleteProjectImage(accessToken: string, projectId: number, image
   });
 }
 
-// VI: API Sprint 8 cho CRUD region; backend van la nguon kiem tra ownership/chong chong lan.
+// VI: API region Sprint 8/9; backend van la nguon kiem tra ownership, overlap va gan mau kinh active.
 export function listGlassRegions(accessToken: string, projectId: number, imageId: number): Promise<GlassRegion[]> {
   return projectRequest<GlassRegion[]>(`/projects/${projectId}/images/${imageId}/regions`, accessToken);
 }
@@ -184,6 +184,19 @@ export function duplicateGlassRegion(accessToken: string, projectId: number, ima
 
 export function deleteGlassRegion(accessToken: string, projectId: number, imageId: number, regionId: number): Promise<{ deleted: true }> {
   return projectRequest<{ deleted: true }>(`/projects/${projectId}/images/${imageId}/regions/${regionId}`, accessToken, {
+    method: 'DELETE',
+  });
+}
+
+export function assignGlassToRegion(accessToken: string, projectId: number, imageId: number, regionId: number, glassProductId: number): Promise<GlassRegion> {
+  return projectRequest<GlassRegion>(`/projects/${projectId}/images/${imageId}/regions/${regionId}/glass`, accessToken, {
+    method: 'PATCH',
+    body: JSON.stringify({ glassProductId }),
+  });
+}
+
+export function removeGlassFromRegion(accessToken: string, projectId: number, imageId: number, regionId: number): Promise<GlassRegion> {
+  return projectRequest<GlassRegion>(`/projects/${projectId}/images/${imageId}/regions/${regionId}/glass`, accessToken, {
     method: 'DELETE',
   });
 }

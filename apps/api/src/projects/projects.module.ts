@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { GlassProduct } from '../glass-catalog/glass-product.entity';
 import { GlassRegionPane } from './glass-region-pane.entity';
 import { GlassRegion } from './glass-region.entity';
 import { ProjectImage } from './project-image.entity';
@@ -7,9 +8,9 @@ import { Project } from './project.entity';
 import { ProjectsController } from './projects.controller';
 import { ProjectsService } from './projects.service';
 
-// VI: Module Sprint 4 cho nen tang du an va nhieu anh trong mot du an.
+// VI: Module du an gom anh, region/pane va lien ket san pham kinh de gan vat lieu Sprint 9.
 @Module({
-  imports: [TypeOrmModule.forFeature([Project, ProjectImage, GlassRegion, GlassRegionPane])],
+  imports: [TypeOrmModule.forFeature([Project, ProjectImage, GlassRegion, GlassRegionPane, GlassProduct])],
   controllers: [ProjectsController],
   providers: [ProjectsService],
 })

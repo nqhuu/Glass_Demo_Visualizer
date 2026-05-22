@@ -1,12 +1,13 @@
 import { Column, CreateDateColumn, Entity, JoinColumn, ManyToOne, OneToMany, PrimaryGeneratedColumn, UpdateDateColumn } from 'typeorm';
 import { ProjectImage } from './project-image.entity';
 import { Project } from './project.entity';
+import { GlassProduct } from '../glass-catalog/glass-product.entity';
 import { GlassRegionBoundaryType } from './enums/glass-region-boundary-type.enum';
 import { GlassRegionGridMode } from './enums/glass-region-grid-mode.enum';
 import { GlassRegionStatus } from './enums/glass-region-status.enum';
 import { GlassRegionPane } from './glass-region-pane.entity';
 
-// VI: Entity vung kinh tren mot anh du an; Sprint 7 luu hinh hoc va pane, chua gan mau kinh.
+// VI: Entity vung kinh tren mot anh du an; Sprint 9 them lien ket mau kinh nhung khong cho user sua profile vat lieu.
 @Entity('glass_regions')
 export class GlassRegion {
   @PrimaryGeneratedColumn()
@@ -37,6 +38,10 @@ export class GlassRegion {
 
   @Column({ name: 'glass_product_id', type: 'int', nullable: true })
   glassProductId!: number | null;
+
+  @ManyToOne(() => GlassProduct, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'glass_product_id' })
+  glassProduct!: GlassProduct | null;
 
   @Column({ name: 'grid_mode', type: 'enum', enum: GlassRegionGridMode, default: GlassRegionGridMode.RowsColumns })
   gridMode!: GlassRegionGridMode;

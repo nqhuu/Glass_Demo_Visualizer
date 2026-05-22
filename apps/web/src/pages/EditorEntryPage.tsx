@@ -28,7 +28,8 @@ import { useAuth } from '../auth/use-auth';
 import { GlassPreview } from '../catalog/GlassPreview';
 import { listActiveGlassProducts } from '../catalog/glass-catalog-api';
 import type { GlassProduct } from '../catalog/glass-catalog.types';
-import { createGlassRegion, deleteGlassRegion, duplicateGlassRegion, getProject, listGlassRegions, listProjectImages, resolveProjectImageUrl, updateGlassRegion } from '../projects/project-api';
+import { GlassMaterialPreviewLayer } from '../editor/GlassMaterialPreviewLayer';
+import { assignGlassToRegion, createGlassRegion, deleteGlassRegion, duplicateGlassRegion, getProject, listGlassRegions, listProjectImages, removeGlassFromRegion, resolveProjectImageUrl, updateGlassRegion } from '../projects/project-api';
 import type { GlassRegion, GlassRegionBoundaryType, NormalizedPoint, Project, ProjectImage } from '../projects/project.types';
 import { clampPoint, draftOverlapsRegions, generatePreviewPanes, pointsToSvg } from '../projects/region-geometry';
 
@@ -62,7 +63,7 @@ const editorTools: Array<{ id: EditorTool; labelKey: string; icon: LucideIcon; d
   { id: 'grid', labelKey: 'editorEntry.tools.grid', icon: Grid2X2 },
   { id: 'copy', labelKey: 'editorEntry.tools.copy', icon: Copy },
   { id: 'delete', labelKey: 'editorEntry.tools.delete', icon: Trash2 },
-  { id: 'glass', labelKey: 'editorEntry.tools.glass', icon: Gem, disabled: true },
+  { id: 'glass', labelKey: 'editorEntry.tools.glass', icon: Gem },
   { id: 'export', labelKey: 'editorEntry.tools.export', icon: Download, disabled: true },
 ];
 
@@ -70,7 +71,7 @@ const mobileTools = editorTools.filter((tool) => ['select', 'region', 'rectangle
 const zoomOptions = [75, 100, 125];
 const defaultDraft: DraftRegion = { name: '', points: null, rows: 2, columns: 2 };
 
-// VI: Trang editor Sprint 8 cho tao/chinh sua region va pane grid, chua gan kinh/render/export.
+// VI: Trang editor cho region/pane va Sprint 9 gan mau kinh active de preview vat lieu, chua export/watermark.
 export function EditorEntryPage() {
   const { t } = useTranslation();
   const { projectId, imageId } = useParams();
@@ -85,6 +86,7 @@ export function EditorEntryPage() {
   const [glassProducts, setGlassProducts] = useState<GlassProduct[]>([]);
   const [glassLoadStatus, setGlassLoadStatus] = useState<GlassLoadStatus>('idle');
   const [selectedGlassId, setSelectedGlassId] = useState<number | null>(null);
+  const [assigningGlassId, setAssigningGlassId] = useState<number | null>(null);
   const [selectedRegionId, setSelectedRegionId] = useState<number | null>(null);
   const [activeTool, setActiveTool] = useState<EditorTool>('select');
   const [zoom, setZoom] = useState(100);
@@ -95,6 +97,7 @@ export function EditorEntryPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [messageKey, setMessageKey] = useState<string | null>(null);
   const [regionMessageKey, setRegionMessageKey] = useState<string | null>(null);
+  const [glassMessageKey, setGlassMessageKey] = useState<string | null>(null);
 
   const selectedImage = useMemo(() => images.find((image) => image.id === numericImageId) ?? null, [images, numericImageId]);
   const selectedRegion = useMemo(() => regions.find((region) => region.id === selectedRegionId) ?? null, [regions, selectedRegionId]);
@@ -117,6 +120,7 @@ export function EditorEntryPage() {
     }
 
     setEditDraft(regionToEditDraft(selectedRegion));
+    setSelectedGlassId(selectedRegion.glassProductId);
     setSaveStatus('idle');
   }, [selectedRegion]);
 
@@ -124,6 +128,7 @@ export function EditorEntryPage() {
     try {
       // VI: Catalog kinh chi la phu tro trong editor, loi catalog khong chan canvas/region.
       setGlassLoadStatus('loading');
+      setGlassMessageKey(null);
       const productResults = await listActiveGlassProducts();
       setGlassProducts(productResults);
       setSelectedGlassId((current) => (current && productResults.some((product) => product.id === current) ? current : null));
@@ -133,6 +138,7 @@ export function EditorEntryPage() {
       setGlassProducts([]);
       setSelectedGlassId(null);
       setGlassLoadStatus('error');
+      setGlassMessageKey('editorEntry.glass.loadFailed');
     }
   }, [numericImageId, numericProjectId]);
 
@@ -348,6 +354,49 @@ export function EditorEntryPage() {
     }
   };
 
+  const assignSelectedGlass = async (productId: number) => {
+    if (!accessToken || !selectedRegion) {
+      setGlassMessageKey('editorEntry.glass.selectRegionFirst');
+      return;
+    }
+
+    try {
+      setAssigningGlassId(productId);
+      setGlassMessageKey(null);
+      const updatedRegion = await assignGlassToRegion(accessToken, numericProjectId, numericImageId, selectedRegion.id, productId);
+      setRegions((current) => current.map((region) => (region.id === updatedRegion.id ? updatedRegion : region)));
+      setSelectedRegionId(updatedRegion.id);
+      setSelectedGlassId(productId);
+      setGlassMessageKey('editorEntry.glass.assigned');
+    } catch (error) {
+      logEditorError('assignGlass', error, { projectId: numericProjectId, imageId: numericImageId });
+      setGlassMessageKey('editorEntry.glass.assignFailed');
+    } finally {
+      setAssigningGlassId(null);
+    }
+  };
+
+  const removeSelectedGlass = async () => {
+    if (!accessToken || !selectedRegion) {
+      return;
+    }
+
+    try {
+      setAssigningGlassId(selectedRegion.glassProductId ?? -1);
+      setGlassMessageKey(null);
+      const updatedRegion = await removeGlassFromRegion(accessToken, numericProjectId, numericImageId, selectedRegion.id);
+      setRegions((current) => current.map((region) => (region.id === updatedRegion.id ? updatedRegion : region)));
+      setSelectedRegionId(updatedRegion.id);
+      setSelectedGlassId(null);
+      setGlassMessageKey('editorEntry.glass.removed');
+    } catch (error) {
+      logEditorError('removeGlass', error, { projectId: numericProjectId, imageId: numericImageId });
+      setGlassMessageKey('editorEntry.glass.removeFailed');
+    } finally {
+      setAssigningGlassId(null);
+    }
+  };
+
   if (isLoading) {
     return <EditorStateCard message={t('editorEntry.messages.loading')} />;
   }
@@ -404,7 +453,6 @@ export function EditorEntryPage() {
             onSelectRegion={setSelectedRegionId}
           />
           <MobileInspector
-            selectedRegion={selectedRegion}
             editDraft={editDraft}
             canSaveEdit={canSaveEdit}
             editOverlaps={editOverlaps}
@@ -415,11 +463,16 @@ export function EditorEntryPage() {
             draftTooSmall={draftTooSmall}
             products={glassProducts}
             selectedGlassId={selectedGlassId}
+            selectedRegion={selectedRegion}
             status={glassLoadStatus}
+            glassMessageKey={glassMessageKey}
+            assigningGlassId={assigningGlassId}
             saveStatus={saveStatus}
             onDraftChange={setDraft}
             onRetry={loadGlassProducts}
             onSelectGlass={setSelectedGlassId}
+            onAssignGlass={assignSelectedGlass}
+            onRemoveGlass={removeSelectedGlass}
             onSaveDraft={saveDraft}
             onCancelDraft={cancelDraft}
             onEditDraftChange={setEditDraft}
@@ -430,7 +483,6 @@ export function EditorEntryPage() {
           />
         </main>
         <InspectorPanel
-          selectedRegion={selectedRegion}
           editDraft={editDraft}
           canSaveEdit={canSaveEdit}
           editOverlaps={editOverlaps}
@@ -441,11 +493,16 @@ export function EditorEntryPage() {
           draftTooSmall={draftTooSmall}
           products={glassProducts}
           selectedGlassId={selectedGlassId}
+          selectedRegion={selectedRegion}
           status={glassLoadStatus}
+          glassMessageKey={glassMessageKey}
+          assigningGlassId={assigningGlassId}
           saveStatus={saveStatus}
           onDraftChange={setDraft}
           onRetry={loadGlassProducts}
           onSelectGlass={setSelectedGlassId}
+          onAssignGlass={assignSelectedGlass}
+          onRemoveGlass={removeSelectedGlass}
           onSaveDraft={saveDraft}
           onCancelDraft={cancelDraft}
           onEditDraftChange={setEditDraft}
@@ -708,6 +765,7 @@ function EditorCanvas({
               onPointerUp={handlePointerUp}
               onPointerCancel={handlePointerUp}
             >
+              <GlassMaterialPreviewLayer regions={regions} />
               {regions.map((region, index) => (
                 <RegionShape
                   key={region.id}
@@ -959,6 +1017,9 @@ function RegionPanel({
                 </div>
                 <p className="mt-2 text-xs text-neutral-500">{t('editorEntry.regions.paneCount', { count: region.panes.length })}</p>
                 <p className="mt-1 text-xs text-neutral-500">{t('editorEntry.regions.gridValue', { rows: region.rows ?? 1, columns: region.columns ?? 1 })}</p>
+                <p className="mt-1 text-xs font-semibold text-neutral-600">
+                  {region.glassProduct ? t('editorEntry.glass.assignedProduct', { name: region.glassProduct.name, code: region.glassProduct.code }) : t('editorEntry.regions.unassignedGlass')}
+                </p>
                 {selectedRegionId === region.id ? <p className="mt-2 rounded bg-white/80 px-2 py-1 text-xs font-semibold text-red-700">{t('editorEntry.regions.editSelected')}</p> : null}
               </button>
               {selectedRegionId === region.id ? (
@@ -1020,9 +1081,14 @@ function InspectorPanel(props: InspectorProps) {
 type GlassSelectorProps = {
   products: GlassProduct[];
   selectedGlassId: number | null;
+  selectedRegion: GlassRegion | null;
   status: GlassLoadStatus;
+  glassMessageKey: string | null;
+  assigningGlassId: number | null;
   onRetry: () => void;
   onSelectGlass: (productId: number | null) => void;
+  onAssignGlass: (productId: number) => void;
+  onRemoveGlass: () => void;
 };
 
 function MobileInspector(props: InspectorProps) {
@@ -1057,6 +1123,8 @@ function SelectedRegionPanel({
   onCancelEdit,
   onDuplicateRegion,
   onDeleteRegion,
+  onRemoveGlass,
+  assigningGlassId,
   compact = false,
 }: InspectorProps & { compact?: boolean }) {
   const { t } = useTranslation();
@@ -1071,6 +1139,7 @@ function SelectedRegionPanel({
   }
 
   const paneCount = editDraft.rows * editDraft.columns;
+  const assignedProduct = selectedRegion.glassProduct;
 
   return (
     <section className={`rounded-md border border-neutral-200 bg-white p-4 shadow-sm ${compact ? 'border-neutral-100 shadow-none' : ''}`}>
@@ -1079,7 +1148,9 @@ function SelectedRegionPanel({
           <h2 className="text-base font-semibold text-neutral-950">{t('editorEntry.regions.editTitle')}</h2>
           <p className="mt-1 text-sm text-neutral-600">{t('editorEntry.regions.editDescription')}</p>
         </div>
-        <span className="rounded-md bg-stone-100 px-3 py-2 text-xs font-semibold text-neutral-700">{t('editorEntry.regions.unassignedGlass')}</span>
+        <span className={`rounded-md px-3 py-2 text-xs font-semibold ${assignedProduct ? 'bg-emerald-50 text-emerald-700' : 'bg-stone-100 text-neutral-700'}`}>
+          {assignedProduct ? t('editorEntry.glass.assignedBadge') : t('editorEntry.regions.unassignedGlass')}
+        </span>
       </div>
 
       <div className="mt-4 space-y-3">
@@ -1100,6 +1171,30 @@ function SelectedRegionPanel({
           <MetricBox labelKey="editorEntry.inspector.geometry" value={editDraft.points ? t(`editorEntry.boundaryTypes.${getBoundaryType(editDraft.points)}`) : t('editorEntry.inspector.noSelection')} />
           <MetricBox labelKey="editorEntry.inspector.grid" value={t('editorEntry.regions.gridValue', { rows: editDraft.rows, columns: editDraft.columns })} />
           <MetricBox labelKey="editorEntry.inspector.area" value={t('editorEntry.regions.paneCount', { count: paneCount })} />
+        </div>
+        <div className="rounded-md border border-neutral-200 bg-stone-50 px-3 py-3 text-sm">
+          <p className="font-semibold text-neutral-900">{t('editorEntry.glass.currentProduct')}</p>
+          {assignedProduct ? (
+            <div className="mt-2 space-y-2">
+              <p className="font-semibold text-neutral-950">{assignedProduct.name}</p>
+              <p className="text-xs text-neutral-600">
+                {t('editorEntry.glass.productMeta', {
+                  code: assignedProduct.code,
+                  material: t(`catalog.materialTypes.${assignedProduct.materialType}`, { defaultValue: t('editorEntry.glass.unknownMaterial') }),
+                })}
+              </p>
+              <button
+                className="inline-flex min-h-10 items-center justify-center rounded-md border border-red-200 bg-white px-3 py-2 text-xs font-semibold text-red-700 disabled:cursor-not-allowed disabled:opacity-60"
+                type="button"
+                onClick={onRemoveGlass}
+                disabled={assigningGlassId !== null}
+              >
+                {assigningGlassId !== null ? t('editorEntry.glass.saving') : t('editorEntry.glass.remove')}
+              </button>
+            </div>
+          ) : (
+            <p className="mt-2 text-xs text-neutral-600">{t('editorEntry.glass.unassignedHelp')}</p>
+          )}
         </div>
         {editOverlaps ? <p className="rounded-md border border-red-100 bg-red-50 px-3 py-2 text-sm font-semibold text-red-800">{t('editorEntry.regions.overlapWarning')}</p> : null}
         {editTooSmall ? <p className="rounded-md border border-amber-100 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-800">{t('editorEntry.regions.tooSmall')}</p> : null}
@@ -1211,13 +1306,19 @@ function MetricBox({ labelKey, value }: { labelKey: string; value: string }) {
 function GlassSelectorPanel({
   products,
   selectedGlassId,
+  selectedRegion,
   status,
+  glassMessageKey,
+  assigningGlassId,
   onRetry,
   onSelectGlass,
+  onAssignGlass,
+  onRemoveGlass,
   compact = false,
 }: GlassSelectorProps & { compact?: boolean }) {
   const { t } = useTranslation();
-  const visibleProducts = compact ? products.slice(0, 2) : products.slice(0, 4);
+  const visibleProducts = products;
+  const assignedProductId = selectedRegion?.glassProductId ?? null;
 
   return (
     <section className="rounded-md border border-neutral-200 bg-white p-4 shadow-sm">
@@ -1226,6 +1327,14 @@ function GlassSelectorPanel({
         <h3 className="text-base font-semibold text-neutral-950">{t('editorEntry.glass.title')}</h3>
       </div>
       <p className="mt-2 text-sm text-neutral-600">{t('editorEntry.glass.description')}</p>
+      {selectedRegion ? (
+        <p className="mt-2 rounded-md bg-stone-100 px-3 py-2 text-xs font-semibold text-neutral-700">
+          {selectedRegion.glassProduct ? t('editorEntry.glass.assignedProduct', { name: selectedRegion.glassProduct.name, code: selectedRegion.glassProduct.code }) : t('editorEntry.glass.selectProductHelp')}
+        </p>
+      ) : (
+        <p className="mt-2 rounded-md bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">{t('editorEntry.glass.selectRegionFirst')}</p>
+      )}
+      {glassMessageKey ? <p className="mt-3 rounded-md bg-stone-100 px-3 py-2 text-sm font-semibold text-neutral-700">{t(glassMessageKey)}</p> : null}
 
       {status === 'loading' ? <div className="mt-4 rounded-md bg-stone-100 px-4 py-5 text-sm text-neutral-700">{t('editorEntry.glass.loading')}</div> : null}
 
@@ -1241,23 +1350,29 @@ function GlassSelectorPanel({
       {status === 'loaded' && products.length === 0 ? <div className="mt-4 rounded-md bg-stone-100 px-4 py-5 text-sm text-neutral-700">{t('editorEntry.glass.empty')}</div> : null}
 
       {status === 'loaded' && visibleProducts.length > 0 ? (
-        <div className="mt-4 grid grid-cols-2 gap-3">
+        <div className={`mt-4 grid gap-3 ${compact ? 'grid-cols-1 sm:grid-cols-2' : 'grid-cols-2'}`}>
           {visibleProducts.map((product) => {
             const isSelected = selectedGlassId === product.id;
+            const isAssigned = assignedProductId === product.id;
+            const isSaving = assigningGlassId === product.id;
             return (
-              <button
-                key={product.id}
-                className={`rounded-md border p-2 text-left transition ${isSelected ? 'border-brand-red bg-red-50' : 'border-neutral-200 bg-white hover:border-neutral-300'}`}
-                type="button"
-                onClick={() => onSelectGlass(isSelected ? null : product.id)}
-                disabled
-                title={t('editorEntry.glass.assignmentLater')}
-              >
+              <div key={product.id} className={`rounded-md border p-2 text-left transition ${isSelected || isAssigned ? 'border-brand-red bg-red-50' : 'border-neutral-200 bg-white'}`}>
+                <button className="block w-full text-left" type="button" onClick={() => onSelectGlass(isSelected ? null : product.id)}>
                 <GlassPreview product={product} />
                 <p className="mt-2 line-clamp-1 text-sm font-semibold text-neutral-950">{product.name}</p>
                 <p className="mt-1 line-clamp-1 text-xs text-neutral-500">{product.code}</p>
-                {isSelected ? <span className="mt-2 inline-flex rounded bg-brand-red px-2 py-1 text-xs font-semibold text-white">{t('editorEntry.glass.selected')}</span> : null}
+                  {isAssigned ? <span className="mt-2 inline-flex rounded bg-emerald-600 px-2 py-1 text-xs font-semibold text-white">{t('editorEntry.glass.assignedBadge')}</span> : null}
+                  {!isAssigned && isSelected ? <span className="mt-2 inline-flex rounded bg-brand-red px-2 py-1 text-xs font-semibold text-white">{t('editorEntry.glass.selected')}</span> : null}
               </button>
+                <button
+                  className="mt-2 inline-flex min-h-9 w-full items-center justify-center rounded-md bg-brand-red px-2 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+                  type="button"
+                  disabled={!selectedRegion || assigningGlassId !== null}
+                  onClick={() => (isAssigned ? onRemoveGlass() : onAssignGlass(product.id))}
+                >
+                  {isSaving ? t('editorEntry.glass.saving') : isAssigned ? t('editorEntry.glass.remove') : selectedRegion?.glassProductId ? t('editorEntry.glass.change') : t('editorEntry.glass.assign')}
+                </button>
+              </div>
             );
           })}
         </div>

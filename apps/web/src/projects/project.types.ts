@@ -1,4 +1,6 @@
-// VI: Kieu du lieu frontend cho Sprint 4 project va metadata anh du an.
+import type { GlassProduct } from '../catalog/glass-catalog.types';
+
+// VI: Kieu du lieu frontend cho project/image/region; Sprint 9 region co the gan mot mau kinh active.
 export type ProjectStatus = 'draft' | 'active' | 'archived';
 export type ProjectImageSourceType = 'uploaded' | 'external_url' | 'placeholder';
 export type GlassRegionBoundaryType = 'rectangle' | 'quadrilateral' | 'polygon';
@@ -102,6 +104,7 @@ export interface GlassRegion {
   boundaryType: GlassRegionBoundaryType;
   boundaryPointsJson: NormalizedPoint[];
   glassProductId: number | null;
+  glassProduct: GlassProduct | null;
   gridMode: GlassRegionGridMode;
   rows: number | null;
   columns: number | null;

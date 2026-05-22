@@ -6,7 +6,9 @@ import { extname, parse, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { DataSource, EntityManager, FindOptionsWhere, Like, Repository } from 'typeorm';
 import { JwtPayload } from '../auth/auth.types';
+import { GlassProduct } from '../glass-catalog/glass-product.entity';
 import { UserRole } from '../users/user-role.enum';
+import { AssignGlassProductDto } from './dto/assign-glass-product.dto';
 import { CreateGlassRegionDto } from './dto/create-glass-region.dto';
 import { CreateProjectImageDto } from './dto/create-project-image.dto';
 import { CreateProjectDto } from './dto/create-project.dto';
@@ -58,6 +60,8 @@ export class ProjectsService {
     private readonly imagesRepository: Repository<ProjectImage>,
     @InjectRepository(GlassRegion)
     private readonly regionsRepository: Repository<GlassRegion>,
+    @InjectRepository(GlassProduct)
+    private readonly glassProductsRepository: Repository<GlassProduct>,
     private readonly dataSource: DataSource,
     private readonly configService: ConfigService,
   ) {}
@@ -256,7 +260,7 @@ export class ProjectsService {
       await this.findAccessibleProjectImage(user, projectId, imageId);
       return await this.regionsRepository.find({
         where: { projectId, projectImageId: imageId },
-        relations: { panes: true },
+        relations: { panes: true, glassProduct: { category: true } },
         order: { sortOrder: 'ASC', createdAt: 'ASC', panes: { sortOrder: 'ASC' } },
       });
     } catch (error) {
@@ -276,6 +280,63 @@ export class ProjectsService {
         throw error;
       }
       this.logAndThrow('getRegion', 'Unable to load glass region.', error, { userId: user.sub, projectId, imageId, regionId });
+    }
+  }
+
+  async assignRegionGlass(user: JwtPayload, projectId: number, imageId: number, regionId: number, dto: AssignGlassProductDto): Promise<GlassRegion> {
+    try {
+      await this.findAccessibleProjectImage(user, projectId, imageId);
+      const product = await this.findActiveGlassProduct(dto.glassProductId);
+
+      await this.dataSource.transaction(async (manager) => {
+        const region = await manager.findOne(GlassRegion, {
+          where: { id: regionId, projectId, projectImageId: imageId },
+        });
+
+        if (!region) {
+          throw new NotFoundException('Glass region was not found.');
+        }
+
+        // VI: Sprint 9 chi luu id san pham active; user khong duoc gui/sua cac thong so vat lieu.
+        region.glassProductId = product.id;
+        region.status = GlassRegionStatus.Assigned;
+        await manager.save(GlassRegion, region);
+      });
+
+      return await this.findRegion(projectId, imageId, regionId);
+    } catch (error) {
+      if (this.isExpectedAccessError(error) || error instanceof BadRequestException) {
+        throw error;
+      }
+      this.logAndThrow('assignRegionGlass', 'Unable to assign glass product.', error, { userId: user.sub, projectId, imageId, regionId, productId: dto.glassProductId });
+    }
+  }
+
+  async clearRegionGlass(user: JwtPayload, projectId: number, imageId: number, regionId: number): Promise<GlassRegion> {
+    try {
+      await this.findAccessibleProjectImage(user, projectId, imageId);
+
+      await this.dataSource.transaction(async (manager) => {
+        const region = await manager.findOne(GlassRegion, {
+          where: { id: regionId, projectId, projectImageId: imageId },
+        });
+
+        if (!region) {
+          throw new NotFoundException('Glass region was not found.');
+        }
+
+        // VI: Go mau kinh khong xoa geometry/pane; region quay ve trang thai chua gan.
+        region.glassProductId = null;
+        region.status = GlassRegionStatus.Unassigned;
+        await manager.save(GlassRegion, region);
+      });
+
+      return await this.findRegion(projectId, imageId, regionId);
+    } catch (error) {
+      if (this.isExpectedAccessError(error) || error instanceof BadRequestException) {
+        throw error;
+      }
+      this.logAndThrow('clearRegionGlass', 'Unable to remove glass assignment.', error, { userId: user.sub, projectId, imageId, regionId });
     }
   }
 
@@ -322,7 +383,7 @@ export class ProjectsService {
 
       const savedRegion = await this.regionsRepository.findOne({
         where: { id: savedRegionId, projectId, projectImageId: imageId },
-        relations: { panes: true },
+        relations: { panes: true, glassProduct: { category: true } },
         order: { panes: { sortOrder: 'ASC' } },
       });
 
@@ -534,7 +595,7 @@ export class ProjectsService {
   private async findRegion(projectId: number, imageId: number, regionId: number): Promise<GlassRegion> {
     const region = await this.regionsRepository.findOne({
       where: { id: regionId, projectId, projectImageId: imageId },
-      relations: { panes: true },
+      relations: { panes: true, glassProduct: { category: true } },
       order: { panes: { sortOrder: 'ASC' } },
     });
 
@@ -543,6 +604,23 @@ export class ProjectsService {
     }
 
     return region;
+  }
+
+  private async findActiveGlassProduct(productId: number): Promise<GlassProduct> {
+    const product = await this.glassProductsRepository.findOne({
+      where: { id: productId },
+      relations: { category: true },
+    });
+
+    if (!product) {
+      throw new NotFoundException('Glass product was not found.');
+    }
+
+    if (!product.isActive) {
+      throw new BadRequestException('Glass product is not active.');
+    }
+
+    return product;
   }
 
   private async assertNoRegionOverlap(
