@@ -17,6 +17,7 @@ import {
   Square,
   Trash2,
   Undo2,
+  X,
   ZoomIn,
   type LucideIcon,
 } from 'lucide-react';
@@ -29,8 +30,8 @@ import { GlassPreview } from '../catalog/GlassPreview';
 import { listActiveGlassProducts } from '../catalog/glass-catalog-api';
 import type { GlassProduct } from '../catalog/glass-catalog.types';
 import { GlassMaterialPreviewLayer } from '../editor/GlassMaterialPreviewLayer';
-import { assignGlassToRegion, createGlassRegion, deleteGlassRegion, duplicateGlassRegion, getProject, listGlassRegions, listProjectImages, removeGlassFromRegion, resolveProjectImageUrl, updateGlassRegion } from '../projects/project-api';
-import type { GlassRegion, GlassRegionBoundaryType, NormalizedPoint, Project, ProjectImage } from '../projects/project.types';
+import { assignGlassToRegion, createGlassRegion, deleteGlassRegion, downloadProjectExport, duplicateGlassRegion, exportProjectImage, getProject, listGlassRegions, listProjectImages, removeGlassFromRegion, resolveProjectImageUrl, updateGlassRegion } from '../projects/project-api';
+import type { GlassRegion, GlassRegionBoundaryType, NormalizedPoint, Project, ProjectExport, ProjectImage } from '../projects/project.types';
 import { clampPoint, draftOverlapsRegions, generatePreviewPanes, pointsToSvg } from '../projects/region-geometry';
 
 type EditorTool = 'select' | 'region' | 'rectangle' | 'grid' | 'copy' | 'delete' | 'glass' | 'export';
@@ -64,14 +65,14 @@ const editorTools: Array<{ id: EditorTool; labelKey: string; icon: LucideIcon; d
   { id: 'copy', labelKey: 'editorEntry.tools.copy', icon: Copy },
   { id: 'delete', labelKey: 'editorEntry.tools.delete', icon: Trash2 },
   { id: 'glass', labelKey: 'editorEntry.tools.glass', icon: Gem },
-  { id: 'export', labelKey: 'editorEntry.tools.export', icon: Download, disabled: true },
+  { id: 'export', labelKey: 'editorEntry.tools.export', icon: Download },
 ];
 
 const mobileTools = editorTools.filter((tool) => ['select', 'region', 'rectangle', 'grid', 'glass', 'export'].includes(tool.id));
 const zoomOptions = [75, 100, 125];
 const defaultDraft: DraftRegion = { name: '', points: null, rows: 2, columns: 2 };
 
-// VI: Trang editor cho region/pane va Sprint 9 gan mau kinh active de preview vat lieu, chua export/watermark.
+// VI: Trang editor quan ly region/pane, gan mau kinh va export demo co watermark o Sprint 10.
 export function EditorEntryPage() {
   const { t } = useTranslation();
   const { projectId, imageId } = useParams();
@@ -98,6 +99,10 @@ export function EditorEntryPage() {
   const [messageKey, setMessageKey] = useState<string | null>(null);
   const [regionMessageKey, setRegionMessageKey] = useState<string | null>(null);
   const [glassMessageKey, setGlassMessageKey] = useState<string | null>(null);
+  const [isExportDialogOpen, setIsExportDialogOpen] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
+  const [latestExport, setLatestExport] = useState<ProjectExport | null>(null);
+  const [exportMessageKey, setExportMessageKey] = useState<string | null>(null);
 
   const selectedImage = useMemo(() => images.find((image) => image.id === numericImageId) ?? null, [images, numericImageId]);
   const selectedRegion = useMemo(() => regions.find((region) => region.id === selectedRegionId) ?? null, [regions, selectedRegionId]);
@@ -258,6 +263,11 @@ export function EditorEntryPage() {
 
   const handleToolSelect = (tool: EditorTool) => {
     setActiveTool(tool);
+    if (tool === 'export') {
+      setIsExportDialogOpen(true);
+      return;
+    }
+
     if (tool === 'region' || tool === 'rectangle') {
       startDraft();
       return;
@@ -270,6 +280,45 @@ export function EditorEntryPage() {
 
     if (tool === 'delete') {
       void deleteSelectedRegion();
+    }
+  };
+
+  const runExport = async () => {
+    if (!accessToken) {
+      return;
+    }
+
+    try {
+      // VI: Frontend chi kich hoat export; backend moi render va dong watermark bat buoc.
+      setIsExporting(true);
+      setExportMessageKey(null);
+      const exportRecord = await exportProjectImage(accessToken, numericProjectId, numericImageId);
+      setLatestExport(exportRecord);
+      setExportMessageKey('editorEntry.export.success');
+    } catch (error) {
+      logEditorError('exportDemoImage', error, { projectId: numericProjectId, imageId: numericImageId });
+      setExportMessageKey('editorEntry.export.failed');
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  const downloadLatestExport = async () => {
+    if (!accessToken || !latestExport) {
+      return;
+    }
+
+    try {
+      const blob = await downloadProjectExport(accessToken, numericProjectId, latestExport.id);
+      const downloadUrl = window.URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = downloadUrl;
+      anchor.download = latestExport.fileName;
+      anchor.click();
+      window.URL.revokeObjectURL(downloadUrl);
+    } catch (error) {
+      logEditorError('downloadExport', error, { projectId: numericProjectId, imageId: numericImageId });
+      setExportMessageKey('editorEntry.export.downloadFailed');
     }
   };
 
@@ -480,6 +529,9 @@ export function EditorEntryPage() {
             onCancelEdit={cancelEdit}
             onDuplicateRegion={duplicateSelectedRegion}
             onDeleteRegion={deleteSelectedRegion}
+            onOpenExport={() => setIsExportDialogOpen(true)}
+            latestExport={latestExport}
+            isExporting={isExporting}
           />
         </main>
         <InspectorPanel
@@ -510,9 +562,24 @@ export function EditorEntryPage() {
           onCancelEdit={cancelEdit}
           onDuplicateRegion={duplicateSelectedRegion}
           onDeleteRegion={deleteSelectedRegion}
+          onOpenExport={() => setIsExportDialogOpen(true)}
+          latestExport={latestExport}
+          isExporting={isExporting}
         />
       </div>
 
+      {isExportDialogOpen ? (
+        <ExportDialog
+          image={selectedImage}
+          imageUrl={imageUrl}
+          latestExport={latestExport}
+          isExporting={isExporting}
+          messageKey={exportMessageKey}
+          onClose={() => setIsExportDialogOpen(false)}
+          onExport={runExport}
+          onDownload={downloadLatestExport}
+        />
+      ) : null}
       <MobileToolbar activeTool={activeTool} onSelectTool={handleToolSelect} />
     </div>
   );
@@ -1066,6 +1133,9 @@ type InspectorProps = GlassSelectorProps & {
   onCancelEdit: () => void;
   onDuplicateRegion: () => void;
   onDeleteRegion: () => void;
+  onOpenExport: () => void;
+  latestExport: ProjectExport | null;
+  isExporting: boolean;
 };
 
 function InspectorPanel(props: InspectorProps) {
@@ -1073,7 +1143,7 @@ function InspectorPanel(props: InspectorProps) {
     <aside className="hidden space-y-3 lg:block">
       {props.editDraft ? <SelectedRegionPanel {...props} /> : <RegionSettingsPanel {...props} />}
       <GlassSelectorPanel {...props} />
-      <ExportPanel />
+      <ExportPanel latestExport={props.latestExport} isExporting={props.isExporting} onOpenExport={props.onOpenExport} />
     </aside>
   );
 }
@@ -1107,6 +1177,7 @@ function MobileInspector(props: InspectorProps) {
       </div>
       {props.editDraft ? <SelectedRegionPanel compact {...props} /> : <RegionSettingsPanel compact {...props} />}
       <GlassSelectorPanel compact {...props} />
+      <ExportPanel compact latestExport={props.latestExport} isExporting={props.isExporting} onOpenExport={props.onOpenExport} />
     </section>
   );
 }
@@ -1381,21 +1452,124 @@ function GlassSelectorPanel({
   );
 }
 
-function ExportPanel() {
+function ExportPanel({
+  compact = false,
+  latestExport,
+  isExporting,
+  onOpenExport,
+}: {
+  compact?: boolean;
+  latestExport: ProjectExport | null;
+  isExporting: boolean;
+  onOpenExport: () => void;
+}) {
   const { t } = useTranslation();
 
   return (
-    <section className="rounded-md border border-neutral-200 bg-white p-4 shadow-sm">
+    <section className={`rounded-md border border-neutral-200 bg-white p-4 shadow-sm ${compact ? 'border-neutral-100 shadow-none' : ''}`}>
       <div className="flex items-center gap-2">
         <BoxSelect className="text-brand-red" size={18} />
         <h3 className="text-base font-semibold text-neutral-950">{t('editorEntry.export.title')}</h3>
       </div>
       <p className="mt-2 text-sm leading-6 text-neutral-600">{t('editorEntry.export.description')}</p>
-      <button className="mt-4 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-md bg-neutral-200 px-4 py-2 text-sm font-semibold text-neutral-500 disabled:cursor-not-allowed" type="button" disabled>
+      {latestExport ? (
+        <p className="mt-3 rounded-md bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-700">
+          {t('editorEntry.export.latestReady')}
+        </p>
+      ) : null}
+      <button className="mt-4 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-md bg-brand-red px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:bg-neutral-200 disabled:text-neutral-500" type="button" onClick={onOpenExport} disabled={isExporting}>
         <Download size={16} />
-        {t('editorEntry.export.disabledAction')}
+        {isExporting ? t('editorEntry.export.exporting') : t('editorEntry.export.openAction')}
       </button>
     </section>
+  );
+}
+
+function ExportDialog({
+  image,
+  imageUrl,
+  latestExport,
+  isExporting,
+  messageKey,
+  onClose,
+  onExport,
+  onDownload,
+}: {
+  image: ProjectImage;
+  imageUrl: string | null;
+  latestExport: ProjectExport | null;
+  isExporting: boolean;
+  messageKey: string | null;
+  onClose: () => void;
+  onExport: () => void;
+  onDownload: () => void;
+}) {
+  const { t } = useTranslation();
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end bg-black/45 p-0 lg:items-center lg:justify-center lg:p-6" role="dialog" aria-modal="true" aria-labelledby="editor-export-title">
+      <section className="max-h-[92vh] w-full overflow-y-auto rounded-t-3xl bg-white p-5 shadow-xl lg:max-w-4xl lg:rounded-md">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h2 id="editor-export-title" className="text-xl font-semibold text-neutral-950">{t('editorEntry.export.modalTitle')}</h2>
+            <p className="mt-2 text-sm leading-6 text-neutral-600">{t('editorEntry.export.modalDescription')}</p>
+          </div>
+          <button className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-neutral-200 text-neutral-700" type="button" onClick={onClose} aria-label={t('common.close')}>
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="mt-5 grid gap-5 lg:grid-cols-[minmax(0,1.2fr)_minmax(18rem,0.8fr)]">
+          <div className="rounded-md border border-neutral-200 bg-neutral-50 p-3">
+            <p className="mb-3 text-sm font-semibold text-neutral-800">{t('editorEntry.export.previewTitle')}</p>
+            {imageUrl ? <img className="aspect-video w-full rounded-md object-cover" src={imageUrl} alt={image.title} /> : <div className="flex aspect-video items-center justify-center rounded-md bg-white text-sm text-neutral-500">{t('editorEntry.canvas.noImage')}</div>}
+            <p className="mt-3 rounded-md bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-800">{t('editorEntry.export.previewNotice')}</p>
+          </div>
+
+          <div className="space-y-3">
+            <div className="rounded-md border border-neutral-200 p-4">
+              <p className="text-sm font-semibold text-neutral-950">{t('editorEntry.export.optionsTitle')}</p>
+              <dl className="mt-3 space-y-2 text-sm text-neutral-700">
+                <div className="flex justify-between gap-3">
+                  <dt>{t('editorEntry.export.formatLabel')}</dt>
+                  <dd className="font-semibold">{t('editorEntry.export.svgFormat')}</dd>
+                </div>
+                <div className="flex justify-between gap-3">
+                  <dt>{t('editorEntry.export.watermarkLabel')}</dt>
+                  <dd className="font-semibold text-brand-red">{t('editorEntry.export.watermarkRequired')}</dd>
+                </div>
+                <div className="flex justify-between gap-3">
+                  <dt>{t('editorEntry.export.imageLabel')}</dt>
+                  <dd className="max-w-40 truncate font-semibold">{image.title}</dd>
+                </div>
+              </dl>
+            </div>
+
+            {messageKey ? <p className="rounded-md border border-neutral-200 bg-stone-50 px-3 py-2 text-sm font-semibold text-neutral-700">{t(messageKey)}</p> : null}
+            {latestExport ? (
+              <div className="rounded-md border border-emerald-100 bg-emerald-50 p-4 text-sm text-emerald-800">
+                <p className="font-semibold">{t('editorEntry.export.readyTitle')}</p>
+                <p className="mt-1">{t('editorEntry.export.readyDescription', { fileName: latestExport.fileName })}</p>
+              </div>
+            ) : null}
+
+            <div className="grid gap-2 sm:grid-cols-2">
+              <button className="inline-flex min-h-11 items-center justify-center rounded-md border border-neutral-200 px-4 py-2 text-sm font-semibold text-neutral-700" type="button" onClick={onClose}>
+                {t('common.cancel')}
+              </button>
+              <button className="inline-flex min-h-11 items-center justify-center gap-2 rounded-md bg-brand-red px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:bg-neutral-300" type="button" onClick={onExport} disabled={isExporting}>
+                <Download size={16} />
+                {isExporting ? t('editorEntry.export.exporting') : t('editorEntry.export.confirmAction')}
+              </button>
+              <button className="inline-flex min-h-11 items-center justify-center gap-2 rounded-md border border-brand-red px-4 py-2 text-sm font-semibold text-brand-red disabled:cursor-not-allowed disabled:border-neutral-200 disabled:text-neutral-400 sm:col-span-2" type="button" onClick={onDownload} disabled={!latestExport || isExporting}>
+                <Download size={16} />
+                {t('editorEntry.export.downloadAction')}
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
   );
 }
 

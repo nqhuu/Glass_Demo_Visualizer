@@ -1,7 +1,7 @@
 import { BadRequestException, ForbiddenException, Injectable, InternalServerErrorException, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
-import { mkdir, unlink, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, stat, unlink, writeFile } from 'node:fs/promises';
 import { extname, parse, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { DataSource, EntityManager, FindOptionsWhere, Like, Repository } from 'typeorm';
@@ -21,10 +21,12 @@ import { GlassRegionBoundaryType } from './enums/glass-region-boundary-type.enum
 import { GlassRegionGridMode } from './enums/glass-region-grid-mode.enum';
 import { GlassRegionStatus } from './enums/glass-region-status.enum';
 import { ProjectImageSourceType } from './enums/project-image-source-type.enum';
+import { ProjectExportStatus } from './enums/project-export-status.enum';
 import { ProjectStatus } from './enums/project-status.enum';
 import { generateGridPanes, polygonsOverlap, validateBoundaryPoints } from './geometry/glass-region-geometry';
 import { GlassRegion } from './glass-region.entity';
 import { GlassRegionPane } from './glass-region-pane.entity';
+import { ProjectExport } from './project-export.entity';
 import { ProjectImage } from './project-image.entity';
 import { Project } from './project.entity';
 import { UploadedProjectFile } from './uploaded-project-file.type';
@@ -34,6 +36,36 @@ const DEFAULT_UPLOAD_MAX_BYTES = 10 * 1024 * 1024;
 interface ImageUploadValidation {
   extension: string;
   mimeType: string;
+}
+
+interface ExportImageSource {
+  dataUri: string;
+  width: number;
+  height: number;
+}
+
+export interface ProjectExportResponse {
+  id: number;
+  projectId: number;
+  projectImageId: number;
+  createdById: number;
+  fileUrl: string;
+  fileName: string;
+  fileSize: number;
+  width: number;
+  height: number;
+  format: string;
+  watermarkApplied: boolean;
+  copyrightText: string | null;
+  status: ProjectExportStatus;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface ProjectExportDownload {
+  fileName: string;
+  contentType: string;
+  buffer: Buffer;
 }
 
 type SupportedImageKind = 'jpeg' | 'png' | 'webp';
@@ -60,6 +92,8 @@ export class ProjectsService {
     private readonly imagesRepository: Repository<ProjectImage>,
     @InjectRepository(GlassRegion)
     private readonly regionsRepository: Repository<GlassRegion>,
+    @InjectRepository(ProjectExport)
+    private readonly exportsRepository: Repository<ProjectExport>,
     @InjectRepository(GlassProduct)
     private readonly glassProductsRepository: Repository<GlassProduct>,
     private readonly dataSource: DataSource,
@@ -540,6 +574,401 @@ export class ProjectsService {
     }
   }
 
+  async exportDemoImage(user: JwtPayload, projectId: number, imageId: number): Promise<ProjectExportResponse> {
+    let exportFilePath: string | null = null;
+    let exportRecordCommitted = false;
+
+    try {
+      // VI: Export bat buoc chay o backend de watermark khong bi client bo qua.
+      const image = await this.findAccessibleProjectImage(user, projectId, imageId);
+      const assignedRegions = await this.loadAssignedRegionsForExport(projectId, imageId);
+      if (assignedRegions.length === 0) {
+        throw new BadRequestException('At least one assigned glass region is required before export.');
+      }
+
+      const originalImage = await this.readUploadedImageSource(image.imageUrl);
+      const width = originalImage.width;
+      const height = originalImage.height;
+      const copyrightText = this.configService.get<string>('EXPORT_COPYRIGHT_TEXT') ?? `© ${new Date().getFullYear()} GlassDemo. All rights reserved.`;
+      const svg = this.renderExportSvg({
+        originalDataUri: originalImage.dataUri,
+        width,
+        height,
+        regions: assignedRegions,
+        copyrightText,
+      });
+
+      const exportId = randomUUID();
+      const storageKey = `projects/${projectId}/${exportId}.svg`;
+      const exportRoot = this.resolveExportStorageKey(`projects/${projectId}`);
+      exportFilePath = this.resolveExportStorageKey(storageKey);
+      await mkdir(exportRoot, { recursive: true });
+      await writeFile(exportFilePath, svg, 'utf8');
+      const fileStats = await stat(exportFilePath);
+
+      const saved = await this.dataSource.transaction(async (manager) => {
+        const exportsRepository = manager.getRepository(ProjectExport);
+        const exportRecord = exportsRepository.create({
+          projectId,
+          projectImageId: imageId,
+          createdById: user.sub,
+          fileUrl: '',
+          fileName: `glass-demo-${exportId}.svg`,
+          storageKey,
+          fileSize: fileStats.size,
+          width,
+          height,
+          format: 'svg',
+          watermarkApplied: true,
+          copyrightText,
+          status: ProjectExportStatus.Completed,
+        });
+
+        // VI: Chi commit record sau khi gan URL download dung id; khong luu URL /exports/0 bi hong.
+        const created = await exportsRepository.save(exportRecord);
+        created.fileUrl = `/api/projects/${projectId}/exports/${created.id}/download`;
+        return exportsRepository.save(created);
+      });
+
+      // VI: TODO Sprint 11: ap dung rate limit export bang throttler khi module bao mat duoc them.
+      exportRecordCommitted = true;
+      return this.toExportResponse(saved);
+    } catch (error) {
+      if (exportFilePath && !exportRecordCommitted) {
+        await this.removeStoredFile(exportFilePath);
+      }
+      if (this.isExpectedAccessError(error)) {
+        throw error;
+      }
+      this.logAndThrow('exportDemoImage', 'Unable to export demo image.', error, { userId: user.sub, projectId, imageId });
+    }
+  }
+
+  async listExports(user: JwtPayload, projectId: number): Promise<ProjectExportResponse[]> {
+    try {
+      await this.findAccessibleProject(user, projectId);
+      const exports = await this.exportsRepository.find({
+        where: { projectId },
+        order: { createdAt: 'DESC' },
+      });
+      return exports.map((exportRecord) => this.toExportResponse(exportRecord));
+    } catch (error) {
+      if (this.isExpectedAccessError(error)) {
+        throw error;
+      }
+      this.logAndThrow('listExports', 'Unable to load export history.', error, { userId: user.sub, projectId });
+    }
+  }
+
+  async getExport(user: JwtPayload, projectId: number, exportId: number): Promise<ProjectExportResponse> {
+    try {
+      await this.findAccessibleProject(user, projectId);
+      return this.toExportResponse(await this.findProjectExport(projectId, exportId));
+    } catch (error) {
+      if (this.isExpectedAccessError(error)) {
+        throw error;
+      }
+      this.logAndThrow('getExport', 'Unable to load export record.', error, { userId: user.sub, projectId, exportId });
+    }
+  }
+
+  async downloadExport(user: JwtPayload, projectId: number, exportId: number): Promise<ProjectExportDownload> {
+    try {
+      await this.findAccessibleProject(user, projectId);
+      const exportRecord = await this.findProjectExport(projectId, exportId);
+      const buffer = await readFile(this.resolveExportStorageKey(exportRecord.storageKey));
+      return {
+        fileName: exportRecord.fileName,
+        contentType: exportRecord.format === 'svg' ? 'image/svg+xml' : 'application/octet-stream',
+        buffer,
+      };
+    } catch (error) {
+      if (this.isExpectedAccessError(error)) {
+        throw error;
+      }
+      this.logAndThrow('downloadExport', 'Unable to download export file.', error, { userId: user.sub, projectId, exportId });
+    }
+  }
+
+  private async loadAssignedRegionsForExport(projectId: number, imageId: number): Promise<GlassRegion[]> {
+    return this.regionsRepository.find({
+      where: { projectId, projectImageId: imageId, status: GlassRegionStatus.Assigned },
+      relations: { panes: true, glassProduct: { category: true } },
+      order: { sortOrder: 'ASC', createdAt: 'ASC', panes: { sortOrder: 'ASC' } },
+    }).then((regions) => regions.filter((region) => region.glassProduct && region.panes.length > 0));
+  }
+
+  private async readUploadedImageSource(imageUrl: string | null): Promise<ExportImageSource> {
+    if (!imageUrl || !imageUrl.startsWith('/uploads/')) {
+      throw new BadRequestException('Only uploaded project images can be exported in this MVP.');
+    }
+
+    const storageKey = imageUrl.slice('/uploads/'.length);
+    const filePath = this.resolveStorageKey(storageKey);
+    const mimeType = this.getImageMimeType(filePath);
+    const buffer = await readFile(filePath);
+    const dimensions = this.getStoredImageDimensions(buffer, mimeType);
+
+    return {
+      dataUri: `data:${mimeType};base64,${buffer.toString('base64')}`,
+      ...dimensions,
+    };
+  }
+
+  private renderExportSvg(input: {
+    originalDataUri: string;
+    width: number;
+    height: number;
+    regions: GlassRegion[];
+    copyrightText: string;
+  }): string {
+    const minDimension = Math.min(input.width, input.height);
+    const paneBorderWidth = Math.max(0.8, minDimension * 0.0018);
+    const defs: string[] = [
+      `<linearGradient id="watermark-glow" x1="0" x2="1" y1="0" y2="1"><stop offset="0" stop-color="#ffffff" stop-opacity="0.75"/><stop offset="1" stop-color="#111827" stop-opacity="0.25"/></linearGradient>`,
+    ];
+    const paneMarkup: string[] = [];
+
+    input.regions.forEach((region, regionIndex) => {
+      const product = region.glassProduct;
+      if (!product) {
+        return;
+      }
+
+      const material = this.getExportMaterial(product);
+      region.panes.forEach((pane, paneIndex) => {
+        const clipId = `clip-r${region.id}-p${pane.id}`;
+        const gradientId = `glass-r${region.id}-p${pane.id}`;
+        // VI: Diem normalized cua editor duoc doi sang pixel anh goc tren tung truc de khop dung geometry.
+        const points = this.toSvgPoints(pane.panePointsJson, input.width, input.height);
+        const opacity = Math.min(0.48, Math.max(0.12, product.tintStrength + product.reflectivityLevel * 0.12));
+        const shadowOpacity = Math.min(0.28, Math.max(0.04, product.shadowLevel));
+
+        defs.push(
+          `<clipPath id="${clipId}"><polygon points="${points}"/></clipPath>`,
+          `<linearGradient id="${gradientId}" x1="0" x2="1" y1="0" y2="1"><stop offset="0" stop-color="#ffffff" stop-opacity="${material.highlight}"/><stop offset="0.42" stop-color="${material.color}" stop-opacity="${opacity}"/><stop offset="1" stop-color="#0f172a" stop-opacity="${shadowOpacity}"/></linearGradient>`,
+        );
+
+        paneMarkup.push(
+          `<g clip-path="url(#${clipId})">`,
+          `<polygon points="${points}" fill="url(#${gradientId})"/>`,
+          this.renderMaterialDetail(product.materialType, material.color, clipId, regionIndex, paneIndex, input.width, input.height),
+          `<path d="${this.toSvgPath(pane.panePointsJson, input.width, input.height)}" fill="none" stroke="#ffffff" stroke-opacity="0.44" stroke-width="${paneBorderWidth.toFixed(2)}"/>`,
+          `<path d="${this.toSvgPath(pane.panePointsJson, input.width, input.height)}" fill="none" stroke="${material.edge}" stroke-opacity="0.5" stroke-width="${Math.max(0.5, paneBorderWidth / 2).toFixed(2)}"/>`,
+          `</g>`,
+        );
+      });
+    });
+
+    // VI: SVG giu dung ti le anh goc, tranh keo dan anh lam sai vi tri vung/pane da chinh.
+    return [
+      `<svg xmlns="http://www.w3.org/2000/svg" width="${input.width}" height="${input.height}" viewBox="0 0 ${input.width} ${input.height}" role="img">`,
+      `<defs>${defs.join('')}</defs>`,
+      `<image href="${input.originalDataUri}" x="0" y="0" width="${input.width}" height="${input.height}"/>`,
+      paneMarkup.join(''),
+      this.renderWatermark(input.copyrightText, input.width, input.height),
+      `</svg>`,
+    ].join('');
+  }
+
+  private renderMaterialDetail(materialType: string, color: string, clipId: string, regionIndex: number, paneIndex: number, width: number, height: number): string {
+    const minDimension = Math.min(width, height);
+    if (materialType === 'frosted') {
+      return `<rect x="0" y="0" width="${width}" height="${height}" fill="#f8fafc" opacity="0.18" clip-path="url(#${clipId})"/>`;
+    }
+
+    if (materialType === 'patterned') {
+      const patternId = `pattern-${regionIndex}-${paneIndex}`;
+      const patternSize = Math.max(16, minDimension * 0.036);
+      return [
+        `<defs><pattern id="${patternId}" width="${patternSize.toFixed(2)}" height="${patternSize.toFixed(2)}" patternUnits="userSpaceOnUse" patternTransform="rotate(35)">`,
+        `<path d="M0 ${(patternSize / 2).toFixed(2)} H${patternSize.toFixed(2)}" stroke="${color}" stroke-opacity="0.18" stroke-width="${Math.max(1, patternSize * 0.08).toFixed(2)}"/>`,
+        `<path d="M0 ${(patternSize * 0.88).toFixed(2)} H${patternSize.toFixed(2)}" stroke="#ffffff" stroke-opacity="0.16" stroke-width="${Math.max(0.6, patternSize * 0.03).toFixed(2)}"/>`,
+        `</pattern></defs>`,
+        `<rect x="0" y="0" width="${width}" height="${height}" fill="url(#${patternId})" clip-path="url(#${clipId})"/>`,
+      ].join('');
+    }
+
+    if (materialType === 'reflective') {
+      return [
+        `<path d="M${(-width * 0.08).toFixed(2)} ${(height * 0.24).toFixed(2)} L${(width * 0.52).toFixed(2)} ${(-height * 0.12).toFixed(2)} L${(width * 0.59).toFixed(2)} ${(-height * 0.06).toFixed(2)} L${(-width * 0.01).toFixed(2)} ${(height * 0.3).toFixed(2)} Z" fill="#ffffff" opacity="0.14" clip-path="url(#${clipId})"/>`,
+        `<path d="M${(width * 0.38).toFixed(2)} ${(height * 1.08).toFixed(2)} L${(width * 1.08).toFixed(2)} ${(height * 0.38).toFixed(2)} L${(width * 1.13).toFixed(2)} ${(height * 0.43).toFixed(2)} L${(width * 0.43).toFixed(2)} ${(height * 1.13).toFixed(2)} Z" fill="#ffffff" opacity="0.11" clip-path="url(#${clipId})"/>`,
+      ].join('');
+    }
+
+    return `<path d="M${(-width * 0.04).toFixed(2)} ${(height * 0.12).toFixed(2)} L${(width * 1.02).toFixed(2)} ${(height * 0.04).toFixed(2)}" stroke="#ffffff" stroke-opacity="0.16" stroke-width="${Math.max(10, minDimension * 0.02).toFixed(2)}" clip-path="url(#${clipId})"/>`;
+  }
+
+  private renderWatermark(copyrightText: string, width: number, height: number): string {
+    const safeCopyright = this.escapeXml(copyrightText);
+    const minDimension = Math.min(width, height);
+    const stampFontSize = Math.max(18, Math.round(minDimension * 0.026));
+    const copyrightFontSize = Math.max(11, Math.round(minDimension * 0.013));
+    const badgeHeight = Math.max(38, Math.round(minDimension * 0.056));
+    const badgeWidth = Math.min(Math.round(width * 0.4), Math.round(badgeHeight * 4.9));
+    const margin = Math.max(12, Math.round(minDimension * 0.022));
+    const badgeX = width - badgeWidth - margin;
+    const badgeY = height - badgeHeight - margin - copyrightFontSize;
+    return [
+      `<g opacity="0.14" transform="rotate(-32 ${(width / 2).toFixed(2)} ${(height / 2).toFixed(2)})">`,
+      `<text x="${(width * 0.08).toFixed(2)}" y="${(height * 0.21).toFixed(2)}" fill="#ffffff" font-size="${stampFontSize}" font-family="Arial, sans-serif">GlassDemo</text>`,
+      `<text x="${(width * 0.36).toFixed(2)}" y="${(height * 0.52).toFixed(2)}" fill="#ffffff" font-size="${stampFontSize}" font-family="Arial, sans-serif">GlassDemo</text>`,
+      `<text x="${(width * 0.63).toFixed(2)}" y="${(height * 0.83).toFixed(2)}" fill="#ffffff" font-size="${stampFontSize}" font-family="Arial, sans-serif">GlassDemo</text>`,
+      `</g>`,
+      `<g transform="translate(${badgeX} ${badgeY})">`,
+      `<rect x="0" y="0" width="${badgeWidth}" height="${badgeHeight}" rx="${Math.max(6, Math.round(badgeHeight * 0.18))}" fill="#111827" opacity="0.48"/>`,
+      `<path d="M${(badgeHeight * 0.28).toFixed(2)} ${(badgeHeight * 0.28).toFixed(2)} L${(badgeHeight * 0.5).toFixed(2)} ${(badgeHeight * 0.15).toFixed(2)} L${(badgeHeight * 0.72).toFixed(2)} ${(badgeHeight * 0.34).toFixed(2)} L${(badgeHeight * 0.72).toFixed(2)} ${(badgeHeight * 0.72).toFixed(2)} L${(badgeHeight * 0.5).toFixed(2)} ${(badgeHeight * 0.87).toFixed(2)} L${(badgeHeight * 0.28).toFixed(2)} ${(badgeHeight * 0.68).toFixed(2)} Z" fill="none" stroke="#ffffff" stroke-width="${Math.max(2, badgeHeight * 0.08).toFixed(2)}" opacity="0.9"/>`,
+      `<text x="${(badgeHeight * 0.9).toFixed(2)}" y="${(badgeHeight * 0.64).toFixed(2)}" fill="#ffffff" font-size="${Math.max(14, badgeHeight * 0.48).toFixed(2)}" font-weight="700" font-family="Arial, sans-serif">GlassDemo</text>`,
+      `</g>`,
+      `<text x="${width - margin}" y="${height - margin}" text-anchor="end" fill="#ffffff" fill-opacity="0.82" font-size="${copyrightFontSize}" font-family="Arial, sans-serif">${safeCopyright}</text>`,
+    ].join('');
+  }
+
+  private getExportMaterial(product: GlassProduct): { color: string; edge: string; highlight: number } {
+    return {
+      color: this.isSafeHexColor(product.baseColor) ? product.baseColor : '#dbeafe',
+      edge: product.materialType === 'reflective' ? '#e0f2fe' : '#ffffff',
+      highlight: product.materialType === 'clear' ? 0.22 : 0.34,
+    };
+  }
+
+  private toSvgPoints(points: RegionPoint[], width: number, height: number): string {
+    return points.map((point) => `${this.toSvgCoord(point.x, width)},${this.toSvgCoord(point.y, height)}`).join(' ');
+  }
+
+  private toSvgPath(points: RegionPoint[], width: number, height: number): string {
+    return `${points.map((point, index) => `${index === 0 ? 'M' : 'L'} ${this.toSvgCoord(point.x, width)} ${this.toSvgCoord(point.y, height)}`).join(' ')} Z`;
+  }
+
+  private toSvgCoord(value: number, scale: number): string {
+    return (Math.min(1, Math.max(0, value)) * scale).toFixed(2);
+  }
+
+  private getImageMimeType(filePath: string): string {
+    const extension = extname(filePath).toLowerCase();
+    if (extension === '.jpg' || extension === '.jpeg') {
+      return 'image/jpeg';
+    }
+    if (extension === '.png') {
+      return 'image/png';
+    }
+    if (extension === '.webp') {
+      return 'image/webp';
+    }
+    throw new BadRequestException('Export image type is not supported.');
+  }
+
+  private getStoredImageDimensions(buffer: Buffer, mimeType: string): { width: number; height: number } {
+    // VI: Export doc header file goc da luu de khong tin width/height metadata do client co the sua.
+    const dimensions =
+      mimeType === 'image/png'
+        ? this.readPngDimensions(buffer)
+        : mimeType === 'image/jpeg'
+          ? this.readJpegDimensions(buffer)
+          : mimeType === 'image/webp'
+            ? this.readWebpDimensions(buffer)
+            : null;
+
+    if (!dimensions || dimensions.width <= 0 || dimensions.height <= 0) {
+      throw new BadRequestException('Unable to determine export image dimensions.');
+    }
+
+    return dimensions;
+  }
+
+  private readPngDimensions(buffer: Buffer): { width: number; height: number } | null {
+    if (buffer.length < 24 || this.detectImageSignature(buffer) !== 'png') {
+      return null;
+    }
+    return { width: buffer.readUInt32BE(16), height: buffer.readUInt32BE(20) };
+  }
+
+  private readJpegDimensions(buffer: Buffer): { width: number; height: number } | null {
+    if (this.detectImageSignature(buffer) !== 'jpeg') {
+      return null;
+    }
+
+    const startOfFrameMarkers = new Set([0xc0, 0xc1, 0xc2, 0xc3, 0xc5, 0xc6, 0xc7, 0xc9, 0xca, 0xcb, 0xcd, 0xce, 0xcf]);
+    let offset = 2;
+    while (offset + 8 < buffer.length) {
+      if (buffer[offset] !== 0xff) {
+        offset += 1;
+        continue;
+      }
+
+      const marker = buffer[offset + 1];
+      if (startOfFrameMarkers.has(marker)) {
+        return { width: buffer.readUInt16BE(offset + 7), height: buffer.readUInt16BE(offset + 5) };
+      }
+      if (marker === 0xd8 || marker === 0xd9) {
+        offset += 2;
+        continue;
+      }
+
+      const segmentLength = buffer.readUInt16BE(offset + 2);
+      if (segmentLength < 2) {
+        return null;
+      }
+      offset += segmentLength + 2;
+    }
+    return null;
+  }
+
+  private readWebpDimensions(buffer: Buffer): { width: number; height: number } | null {
+    if (buffer.length < 30 || this.detectImageSignature(buffer) !== 'webp') {
+      return null;
+    }
+
+    const format = buffer.subarray(12, 16).toString('ascii');
+    if (format === 'VP8 ') {
+      return { width: buffer.readUInt16LE(26) & 0x3fff, height: buffer.readUInt16LE(28) & 0x3fff };
+    }
+    if (format === 'VP8L') {
+      const bits = buffer.readUInt32LE(21);
+      return { width: (bits & 0x3fff) + 1, height: ((bits >> 14) & 0x3fff) + 1 };
+    }
+    if (format === 'VP8X') {
+      return { width: buffer.readUIntLE(24, 3) + 1, height: buffer.readUIntLE(27, 3) + 1 };
+    }
+    return null;
+  }
+
+  private isSafeHexColor(value: string): boolean {
+    return /^#[0-9a-fA-F]{6}$/.test(value);
+  }
+
+  private escapeXml(value: string): string {
+    return value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&apos;');
+  }
+
+  private toExportResponse(exportRecord: ProjectExport): ProjectExportResponse {
+    return {
+      id: exportRecord.id,
+      projectId: exportRecord.projectId,
+      projectImageId: exportRecord.projectImageId,
+      createdById: exportRecord.createdById,
+      fileUrl: exportRecord.fileUrl,
+      fileName: exportRecord.fileName,
+      fileSize: exportRecord.fileSize,
+      width: exportRecord.width,
+      height: exportRecord.height,
+      format: exportRecord.format,
+      watermarkApplied: exportRecord.watermarkApplied,
+      copyrightText: exportRecord.copyrightText,
+      status: exportRecord.status,
+      createdAt: exportRecord.createdAt,
+      updatedAt: exportRecord.updatedAt,
+    };
+  }
+
+  private async findProjectExport(projectId: number, exportId: number): Promise<ProjectExport> {
+    const exportRecord = await this.exportsRepository.findOne({ where: { id: exportId, projectId } });
+    if (!exportRecord) {
+      throw new NotFoundException('Export record was not found.');
+    }
+    return exportRecord;
+  }
+
   private buildProjectWhere(user: JwtPayload, query: ListProjectsDto): FindOptionsWhere<Project>[] | FindOptionsWhere<Project> {
     const ownerFilter = user.role === UserRole.Admin ? {} : { ownerId: user.sub };
     const statusFilter = query.status ? { status: query.status } : {};
@@ -785,6 +1214,32 @@ export class ProjectsService {
 
   private getUploadRoot(): string {
     return resolve(this.configService.get<string>('UPLOAD_ROOT') ?? './uploads');
+  }
+
+  private getExportRoot(): string {
+    return resolve(this.configService.get<string>('EXPORT_ROOT') ?? './exports');
+  }
+
+  private resolveStorageKey(storageKey: string): string {
+    return this.resolveRelativeStorageKey(this.getUploadRoot(), storageKey);
+  }
+
+  private resolveExportStorageKey(storageKey: string): string {
+    // VI: File export khong nam trong /uploads public; chi endpoint JWT moi doc tu EXPORT_ROOT.
+    return this.resolveRelativeStorageKey(this.getExportRoot(), storageKey);
+  }
+
+  private resolveRelativeStorageKey(rootPath: string, storageKey: string): string {
+    const normalizedKey = storageKey.replaceAll('\\', '/');
+    if (normalizedKey.includes('..') || normalizedKey.startsWith('/') || normalizedKey.includes(':')) {
+      throw new BadRequestException('Storage path is invalid.');
+    }
+
+    const filePath = resolve(rootPath, normalizedKey);
+    if (!filePath.toLowerCase().startsWith(rootPath.toLowerCase())) {
+      throw new BadRequestException('Storage path is invalid.');
+    }
+    return filePath;
   }
 
   private async removeStoredFile(filePath: string): Promise<void> {

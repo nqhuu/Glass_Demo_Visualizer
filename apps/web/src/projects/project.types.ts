@@ -6,6 +6,7 @@ export type ProjectImageSourceType = 'uploaded' | 'external_url' | 'placeholder'
 export type GlassRegionBoundaryType = 'rectangle' | 'quadrilateral' | 'polygon';
 export type GlassRegionGridMode = 'none' | 'rows_columns' | 'manual_lines';
 export type GlassRegionStatus = 'unassigned' | 'assigned' | 'invalid';
+export type ProjectExportStatus = 'completed' | 'failed';
 
 export interface NormalizedPoint {
   x: number;
@@ -40,6 +41,24 @@ export interface Project {
   notes: string | null;
   status: ProjectStatus;
   images?: ProjectImage[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ProjectExport {
+  id: number;
+  projectId: number;
+  projectImageId: number;
+  createdById: number;
+  fileUrl: string;
+  fileName: string;
+  fileSize: number;
+  width: number;
+  height: number;
+  format: string;
+  watermarkApplied: boolean;
+  copyrightText: string | null;
+  status: ProjectExportStatus;
   createdAt: string;
   updatedAt: string;
 }

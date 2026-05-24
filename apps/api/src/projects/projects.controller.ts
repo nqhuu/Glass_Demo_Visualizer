@@ -1,5 +1,6 @@
-import { Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post, Query, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post, Query, Res, StreamableFile, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
+import type { Response } from 'express';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { JwtPayload } from '../auth/auth.types';
@@ -46,6 +47,34 @@ export class ProjectsController {
     return this.projectsService.archiveProject(user, projectId);
   }
 
+  @Get(':projectId/exports')
+  // VI: Lich su export yeu cau JWT va service chi tra record thuoc project dang duoc phep.
+  listExports(@CurrentUser() user: JwtPayload, @Param('projectId', ParseIntPipe) projectId: number) {
+    return this.projectsService.listExports(user, projectId);
+  }
+
+  @Get(':projectId/exports/:exportId')
+  getExport(
+    @CurrentUser() user: JwtPayload,
+    @Param('projectId', ParseIntPipe) projectId: number,
+    @Param('exportId', ParseIntPipe) exportId: number,
+  ) {
+    return this.projectsService.getExport(user, projectId, exportId);
+  }
+
+  @Get(':projectId/exports/:exportId/download')
+  async downloadExport(
+    @CurrentUser() user: JwtPayload,
+    @Param('projectId', ParseIntPipe) projectId: number,
+    @Param('exportId', ParseIntPipe) exportId: number,
+    @Res({ passthrough: true }) response: Response,
+  ): Promise<StreamableFile> {
+    const file = await this.projectsService.downloadExport(user, projectId, exportId);
+    response.setHeader('Content-Type', file.contentType);
+    response.setHeader('Content-Disposition', `attachment; filename="${file.fileName}"`);
+    return new StreamableFile(file.buffer);
+  }
+
   @Get(':projectId/images')
   listImages(@CurrentUser() user: JwtPayload, @Param('projectId', ParseIntPipe) projectId: number) {
     return this.projectsService.listImages(user, projectId);
@@ -66,6 +95,16 @@ export class ProjectsController {
     @Body() dto: UploadProjectImageDto,
   ) {
     return this.projectsService.uploadImage(user, projectId, file, dto);
+  }
+
+  @Post(':projectId/images/:imageId/export-demo')
+  // VI: Export demo anh du an tren backend de bat buoc watermark va khong lo duong dan noi bo.
+  exportDemoImage(
+    @CurrentUser() user: JwtPayload,
+    @Param('projectId', ParseIntPipe) projectId: number,
+    @Param('imageId', ParseIntPipe) imageId: number,
+  ) {
+    return this.projectsService.exportDemoImage(user, projectId, imageId);
   }
 
   @Get(':projectId/images/:imageId/regions')

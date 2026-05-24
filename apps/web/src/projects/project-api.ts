@@ -2,6 +2,7 @@ import type {
   CreateGlassRegionPayload,
   GlassRegion,
   Project,
+  ProjectExport,
   ProjectImage,
   ProjectImagePayload,
   ProjectImageUploadPayload,
@@ -49,6 +50,21 @@ async function projectFormRequest<T>(path: string, accessToken: string, formData
   }
 
   return payload as T;
+}
+
+async function projectBlobRequest(path: string, accessToken: string): Promise<Blob> {
+  const response = await fetch(`${apiBaseUrl}${path}`, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+    },
+  });
+
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => null)) as { message?: string } | null;
+    throw new Error(payload?.message ?? 'Project download failed.');
+  }
+
+  return response.blob();
 }
 
 function toProjectQuery(query: ProjectQuery): string {
@@ -148,6 +164,26 @@ export function deleteProjectImage(accessToken: string, projectId: number, image
   return projectRequest<{ deleted: true }>(`/projects/${projectId}/images/${imageId}`, accessToken, {
     method: 'DELETE',
   });
+}
+
+// VI: API export Sprint 10 luon goi backend de bat buoc watermark va luu lich su.
+export function exportProjectImage(accessToken: string, projectId: number, imageId: number): Promise<ProjectExport> {
+  return projectRequest<ProjectExport>(`/projects/${projectId}/images/${imageId}/export-demo`, accessToken, {
+    method: 'POST',
+    body: JSON.stringify({}),
+  });
+}
+
+export function listProjectExports(accessToken: string, projectId: number): Promise<ProjectExport[]> {
+  return projectRequest<ProjectExport[]>(`/projects/${projectId}/exports`, accessToken);
+}
+
+export function getProjectExport(accessToken: string, projectId: number, exportId: number): Promise<ProjectExport> {
+  return projectRequest<ProjectExport>(`/projects/${projectId}/exports/${exportId}`, accessToken);
+}
+
+export function downloadProjectExport(accessToken: string, projectId: number, exportId: number): Promise<Blob> {
+  return projectBlobRequest(`/projects/${projectId}/exports/${exportId}/download`, accessToken);
 }
 
 // VI: API region Sprint 8/9; backend van la nguon kiem tra ownership, overlap va gan mau kinh active.
