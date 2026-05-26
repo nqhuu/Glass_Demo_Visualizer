@@ -3,7 +3,7 @@ import { ProjectImageSourceType } from './enums/project-image-source-type.enum';
 import { GlassRegion } from './glass-region.entity';
 import { Project } from './project.entity';
 
-// VI: Entity anh thuoc mot du an; Sprint 4 chi luu metadata/URL, chua upload file nhi phan.
+// VI: Entity anh thuoc du an; file upload dung storage key noi bo va URL API duoc bao ve.
 @Entity('project_images')
 export class ProjectImage {
   @PrimaryGeneratedColumn()
@@ -30,6 +30,10 @@ export class ProjectImage {
 
   @Column({ name: 'thumbnail_url', type: 'varchar', length: 700, nullable: true })
   thumbnailUrl!: string | null;
+
+  // VI: Khoa luu tru do server tao, an khoi response mac dinh de khong lo cau truc file noi bo.
+  @Column({ name: 'storage_key', type: 'varchar', length: 700, nullable: true, select: false })
+  storageKey!: string | null;
 
   @Column({ name: 'original_file_name', type: 'varchar', length: 255, nullable: true })
   originalFileName!: string | null;

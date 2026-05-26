@@ -4,7 +4,6 @@ import { UserRole } from '../users/user-role.enum';
 // VI: Payload JWT toi thieu de backend xac dinh nguoi dung va role.
 export interface JwtPayload {
   sub: number;
-  email: string;
   role: UserRole;
 }
 

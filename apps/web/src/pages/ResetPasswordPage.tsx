@@ -4,6 +4,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { resetPasswordRequest } from '../auth/auth-api';
 import { LanguageSwitcher } from '../components/LanguageSwitcher';
 import { AuthShell, PasswordInput } from './LoginPage';
+import { logSafeUiError } from '../utils/safe-log';
 
 // VI: Trang dat lai mat khau bang token tu URL, token khong duoc log ra console.
 export function ResetPasswordPage() {
@@ -36,13 +37,7 @@ export function ResetPasswordPage() {
       await resetPasswordRequest(token, password);
       navigate('/login', { replace: true });
     } catch (error) {
-      console.error({
-        module: 'ResetPasswordPage',
-        action: 'handleSubmit',
-        message: 'Reset password request failed',
-        errorName: error instanceof Error ? error.name : 'UnknownError',
-        errorMessage: error instanceof Error ? error.message : undefined,
-      });
+      logSafeUiError('ResetPasswordPage', 'handleSubmit', 'Reset password request failed', error);
       setErrorMessage(t('auth.resetPasswordFailed'));
     } finally {
       setIsSubmitting(false);

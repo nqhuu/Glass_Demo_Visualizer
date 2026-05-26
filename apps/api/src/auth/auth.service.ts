@@ -16,6 +16,12 @@ export interface ForgotPasswordResponse {
   message: string;
 }
 
+interface SafeAuthErrorLog {
+  errorName: string;
+  errorCode?: string;
+  errorMessage: string;
+}
+
 // VI: Service xac thuc email/password, phat JWT va tra ve thong tin user an toan.
 @Injectable()
 export class AuthService {
@@ -42,7 +48,6 @@ export class AuthService {
 
       const payload: JwtPayload = {
         sub: user.id,
-        email: user.email,
         role: user.role,
       };
 
@@ -59,8 +64,7 @@ export class AuthService {
         module: 'AuthService',
         action: 'login',
         message: 'Login flow failed unexpectedly',
-        errorName: error instanceof Error ? error.name : 'UnknownError',
-        errorMessage: error instanceof Error ? error.message : undefined,
+        ...this.sanitizeErrorForLog(error),
       });
       throw error;
     }
@@ -94,8 +98,7 @@ export class AuthService {
         module: 'AuthService',
         action: 'register',
         message: 'Registration flow failed unexpectedly',
-        errorName: error instanceof Error ? error.name : 'UnknownError',
-        errorMessage: error instanceof Error ? error.message : undefined,
+        ...this.sanitizeErrorForLog(error),
       });
       throw error;
     }
@@ -116,7 +119,7 @@ export class AuthService {
       user.passwordResetExpiresAt = new Date(Date.now() + 1000 * 60 * 30);
       await this.usersService.save(user);
 
-      // VI: TODO Sprint 11: tich hop SMTP/email provider va rate limit; response khong bao gio tra token reset.
+      // VI: TODO: tich hop SMTP/email provider; response khong bao gio tra token reset.
 
       return { message: genericMessage };
     } catch (error) {
@@ -124,8 +127,7 @@ export class AuthService {
         module: 'AuthService',
         action: 'forgotPassword',
         message: 'Forgot password flow failed unexpectedly',
-        errorName: error instanceof Error ? error.name : 'UnknownError',
-        errorMessage: error instanceof Error ? error.message : undefined,
+        ...this.sanitizeErrorForLog(error),
       });
       return { message: genericMessage };
     }
@@ -155,8 +157,7 @@ export class AuthService {
         module: 'AuthService',
         action: 'resetPassword',
         message: 'Reset password flow failed unexpectedly',
-        errorName: error instanceof Error ? error.name : 'UnknownError',
-        errorMessage: error instanceof Error ? error.message : undefined,
+        ...this.sanitizeErrorForLog(error),
       });
       throw error;
     }
@@ -181,8 +182,7 @@ export class AuthService {
         action: 'getCurrentUser',
         userId,
         message: 'Unable to load current authenticated user',
-        errorName: error instanceof Error ? error.name : 'UnknownError',
-        errorMessage: error instanceof Error ? error.message : undefined,
+        ...this.sanitizeErrorForLog(error),
       });
       throw error;
     }
@@ -191,7 +191,6 @@ export class AuthService {
   private async createLoginResponse(user: User): Promise<LoginResponse> {
     const payload: JwtPayload = {
       sub: user.id,
-      email: user.email,
       role: user.role,
     };
 
@@ -203,5 +202,17 @@ export class AuthService {
 
   private hashResetToken(token: string): string {
     return createHash('sha256').update(token).digest('hex');
+  }
+
+  private sanitizeErrorForLog(error: unknown): SafeAuthErrorLog {
+    // VI: Khong ghi raw exception vi co the kem query, token reset hoac du lieu xac thuc.
+    const errorRecord = typeof error === 'object' && error !== null ? (error as { code?: unknown }) : {};
+    const errorCode = typeof errorRecord.code === 'string' || typeof errorRecord.code === 'number' ? String(errorRecord.code) : undefined;
+
+    return {
+      errorName: error instanceof Error ? error.name : 'UnknownError',
+      errorCode,
+      errorMessage: 'Authentication operation failed.',
+    };
   }
 }

@@ -6,8 +6,10 @@ import { useAuth } from '../auth/use-auth';
 import { PageHeader } from '../components/PageHeader';
 import { ShellCard } from '../components/ShellCard';
 import { ProjectImageForm, ProjectImageUploadForm } from '../projects/ProjectForm';
-import { createProjectImage, deleteProjectImage, downloadProjectExport, exportProjectImage, getProject, listProjectExports, listProjectImages, resolveProjectImageUrl, updateProjectImage, uploadProjectImage } from '../projects/project-api';
+import { createProjectImage, deleteProjectImage, downloadProjectExport, exportProjectImage, getProject, listProjectExports, listProjectImages, updateProjectImage, uploadProjectImage } from '../projects/project-api';
 import type { Project, ProjectExport, ProjectImage, ProjectImagePayload, ProjectImageUploadDraft } from '../projects/project.types';
+import { useProjectImageSource } from '../projects/use-project-image-source';
+import { logSafeUiError } from '../utils/safe-log';
 
 const emptyImageForm: ProjectImagePayload = {
   title: '',
@@ -176,14 +178,7 @@ export function ProjectDetailPage() {
       setMessage(t('projectDetail.messages.uploaded'));
       await loadProjectDetail();
     } catch (error) {
-      console.error({
-        module: 'ProjectDetailPage',
-        action: 'handleUploadSubmit',
-        projectId: project.id,
-        message: 'Failed to upload project image',
-        errorName: error instanceof Error ? error.name : 'UnknownError',
-        errorMessage: error instanceof Error ? error.message : undefined,
-      });
+      logSafeFrontendError('handleUploadSubmit', error, { projectId: project.id });
       setMessage(t('projectDetail.messages.uploadFailed'));
     } finally {
       setIsUploading(false);
@@ -310,7 +305,7 @@ export function ProjectDetailPage() {
           {images.length === 0 ? <div className="mt-5 rounded-md bg-stone-100 p-4 text-sm text-neutral-700">{t('projectDetail.messages.emptyImages')}</div> : null}
           <div className="mt-5 grid gap-3 md:grid-cols-2">
             {images.map((image) => (
-              <ImageCard key={image.id} image={image} projectId={project.id} isExporting={exportingImageId === image.id} onEdit={handleEditImage} onDelete={handleDeleteImage} onExport={handleExportImage} />
+              <ImageCard key={image.id} accessToken={accessToken} image={image} projectId={project.id} isExporting={exportingImageId === image.id} onEdit={handleEditImage} onDelete={handleDeleteImage} onExport={handleExportImage} />
             ))}
           </div>
         </ShellCard>
@@ -364,17 +359,11 @@ function InfoRow({ label, value }: { label: string; value: string }) {
 
 function logSafeFrontendError(action: string, error: unknown, context: { projectId?: number; imageId?: number } = {}) {
   // VI: Log frontend chi gom context an toan, khong dump raw response/request/token.
-  console.error({
-    module: 'ProjectDetailPage',
-    action,
-    ...context,
-    message: 'Project detail request failed',
-    errorName: error instanceof Error ? error.name : 'UnknownError',
-    errorMessage: error instanceof Error ? error.message : undefined,
-  });
+  logSafeUiError('ProjectDetailPage', action, 'Project detail request failed', error, context);
 }
 
 function ImageCard({
+  accessToken,
   image,
   projectId,
   onEdit,
@@ -382,6 +371,7 @@ function ImageCard({
   onExport,
   isExporting,
 }: {
+  accessToken: string | null;
   image: ProjectImage;
   projectId: number;
   onEdit: (image: ProjectImage) => void;
@@ -390,12 +380,19 @@ function ImageCard({
   isExporting: boolean;
 }) {
   const { t } = useTranslation();
-  const thumbnail = resolveProjectImageUrl(image.thumbnailUrl || image.imageUrl);
+  const { sourceUrl: thumbnail, status: imageStatus, retry } = useProjectImageSource(accessToken, image, image.thumbnailUrl || image.imageUrl);
 
   return (
     <div className="rounded-md border border-neutral-200 bg-white p-3">
       <div className="flex aspect-[4/3] items-center justify-center overflow-hidden rounded-md bg-stone-100">
-        {thumbnail ? <img className="h-full w-full object-cover" src={thumbnail} alt={image.title} /> : <span className="text-sm font-semibold text-neutral-500">{t('projectDetail.noThumbnail')}</span>}
+        {thumbnail ? <img className="h-full w-full object-cover" src={thumbnail} alt={image.title} /> : null}
+        {!thumbnail && imageStatus === 'loading' ? <span className="px-3 text-center text-sm font-semibold text-neutral-500">{t('projectDetail.imagePreview.loading')}</span> : null}
+        {!thumbnail && imageStatus === 'error' ? (
+          <button className="px-3 text-center text-sm font-semibold text-brand-red" type="button" onClick={retry}>
+            {t('projectDetail.imagePreview.retry')}
+          </button>
+        ) : null}
+        {!thumbnail && imageStatus === 'idle' ? <span className="text-sm font-semibold text-neutral-500">{t('projectDetail.noThumbnail')}</span> : null}
       </div>
       <p className="mt-3 font-semibold text-neutral-950">{image.title}</p>
       <p className="mt-1 text-sm text-neutral-600">

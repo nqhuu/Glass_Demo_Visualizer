@@ -59,6 +59,12 @@ Start MySQL:
 docker compose up -d mysql
 ```
 
+Apply backend database migrations after pulling schema changes:
+
+```bash
+npm --workspace apps/api run migration:run
+```
+
 Run the frontend:
 
 ```bash
@@ -120,6 +126,12 @@ Active catalog endpoints for later editor use:
 
 - `GET /api/glass-categories`
 - `GET /api/glass-products`
+
+## Local media security
+
+- Uploaded project photos are loaded through the JWT-protected `GET /api/projects/:projectId/images/:imageId/file` endpoint, not a public uploads directory.
+- Local material preview/texture assets may be placed in `UPLOAD_ROOT/catalog` and referenced as `/catalog-assets/<safe-file-name>` or legacy `/uploads/catalog/<safe-file-name>`. Only flat safe JPG, JPEG, PNG, or WEBP filenames are accepted; external asset URLs must use `http://` or `https://`. The API exposes catalog textures through `GET /api/catalog-assets/:fileName`.
+- The MVP still stores files on the local filesystem; private object storage is a future deployment improvement.
 
 ## Files Codex must read
 

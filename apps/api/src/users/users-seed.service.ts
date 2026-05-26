@@ -15,12 +15,12 @@ export class UsersSeedService implements OnApplicationBootstrap {
   ) {}
 
   async onApplicationBootstrap(): Promise<void> {
-    const nodeEnv = this.configService.get<string>('NODE_ENV', 'development');
+    const nodeEnv = this.configService.get<string>('NODE_ENV');
     const name = this.configService.get<string>('SEED_ADMIN_NAME');
     const email = this.configService.get<string>('SEED_ADMIN_EMAIL');
     const password = this.configService.get<string>('SEED_ADMIN_PASSWORD');
 
-    if (nodeEnv === 'production') {
+    if (nodeEnv !== 'development') {
       return;
     }
 
@@ -91,7 +91,7 @@ export class UsersSeedService implements OnApplicationBootstrap {
         action: 'onApplicationBootstrap',
         message: 'Failed to seed local admin user',
         errorName: error instanceof Error ? error.name : 'UnknownError',
-        errorMessage: error instanceof Error ? error.message : undefined,
+        errorMessage: 'Local seed operation failed.',
       });
       throw error;
     }

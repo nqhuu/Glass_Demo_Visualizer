@@ -2,7 +2,7 @@ import { BadRequestException, ForbiddenException, Injectable, InternalServerErro
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { mkdir, readFile, stat, unlink, writeFile } from 'node:fs/promises';
-import { extname, parse, resolve } from 'node:path';
+import { extname, isAbsolute, parse, relative, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { DataSource, EntityManager, FindOptionsWhere, Like, Repository } from 'typeorm';
 import { JwtPayload } from '../auth/auth.types';
@@ -63,6 +63,12 @@ export interface ProjectExportResponse {
 }
 
 export interface ProjectExportDownload {
+  fileName: string;
+  contentType: string;
+  buffer: Buffer;
+}
+
+export interface ProjectImageFileResponse {
   fileName: string;
   contentType: string;
   buffer: Buffer;
@@ -218,35 +224,39 @@ export class ProjectsService {
       }
       const validation = this.validateUploadedImage(file);
       const uploadedFile = file;
-      const uploadRoot = this.getUploadRoot();
-      const originalDir = resolve(uploadRoot, 'projects', String(projectId), 'original');
       const storedFileName = `${randomUUID()}${validation.extension}`;
-      storedFilePath = resolve(originalDir, storedFileName);
-
-      if (!storedFilePath.startsWith(originalDir)) {
-        throw new BadRequestException('Upload path is invalid.');
-      }
+      const storageKey = `projects/${projectId}/original/${storedFileName}`;
+      const originalDir = this.resolveStorageKey(`projects/${projectId}/original`);
+      storedFilePath = this.resolveStorageKey(storageKey);
 
       await mkdir(originalDir, { recursive: true });
       await writeFile(storedFilePath, uploadedFile.buffer);
 
-      const publicImageUrl = `/uploads/projects/${projectId}/original/${storedFileName}`;
-      const image = this.imagesRepository.create({
-        projectId,
-        title: this.normalizeUploadTitle(dto.title, uploadedFile.originalname),
-        description: this.nullableText(dto.description),
-        sourceType: ProjectImageSourceType.Uploaded,
-        imageUrl: publicImageUrl,
-        // VI: TODO Sprint sau: tao thumbnail rieng khi co thu vien xu ly anh nhe/on dinh.
-        thumbnailUrl: null,
-        originalFileName: this.safeOriginalFileName(uploadedFile.originalname),
-        // VI: TODO Sprint sau: doc width/height server-side bang thu vien anh da duoc phe duyet.
-        width: null,
-        height: null,
-        sortOrder: dto.sortOrder ?? 0,
+      const imageId = await this.dataSource.transaction(async (manager) => {
+        const repository = manager.getRepository(ProjectImage);
+        const image = repository.create({
+          projectId,
+          title: this.normalizeUploadTitle(dto.title, uploadedFile.originalname),
+          description: this.nullableText(dto.description),
+          sourceType: ProjectImageSourceType.Uploaded,
+          imageUrl: null,
+          // VI: Anh upload luon luu khoa tuong doi do server tao; response khong tra khoa nay.
+          storageKey,
+          // VI: TODO Sprint sau: tao thumbnail rieng khi co thu vien xu ly anh nhe/on dinh.
+          thumbnailUrl: null,
+          originalFileName: this.safeOriginalFileName(uploadedFile.originalname),
+          // VI: TODO Sprint sau: doc width/height server-side bang thu vien anh da duoc phe duyet.
+          width: null,
+          height: null,
+          sortOrder: dto.sortOrder ?? 0,
+        });
+        const created = await repository.save(image);
+        created.imageUrl = this.buildProtectedImageUrl(projectId, created.id);
+        await repository.save(created);
+        return created.id;
       });
 
-      return await this.imagesRepository.save(image);
+      return this.findProjectImage(projectId, imageId);
     } catch (error) {
       if (storedFilePath) {
         await this.removeStoredFile(storedFilePath);
@@ -256,6 +266,35 @@ export class ProjectsService {
         throw error;
       }
       this.logAndThrow('uploadImage', 'Unable to upload project image.', error, { userId: user.sub, projectId });
+    }
+  }
+
+  async getImageFile(user: JwtPayload, projectId: number, imageId: number): Promise<ProjectImageFileResponse> {
+    try {
+      const image = await this.findAccessibleProjectImageWithStorageKey(user, projectId, imageId);
+      if (image.sourceType !== ProjectImageSourceType.Uploaded) {
+        throw new NotFoundException('Uploaded project image file was not found.');
+      }
+
+      const filePath = this.resolveStorageKey(this.getUploadedImageStorageKey(image));
+      const buffer = await readFile(filePath).catch((error: unknown) => {
+        if (this.isFileNotFoundError(error)) {
+          throw new NotFoundException('Uploaded project image file was not found.');
+        }
+        throw error;
+      });
+      const contentType = this.validateStoredImageFile(filePath, buffer);
+
+      return {
+        fileName: `project-image-${image.id}${extname(filePath).toLowerCase()}`,
+        contentType,
+        buffer,
+      };
+    } catch (error) {
+      if (this.isExpectedAccessError(error)) {
+        throw error;
+      }
+      this.logAndThrow('getImageFile', 'Unable to load project image file.', error, { userId: user.sub, projectId, imageId });
     }
   }
 
@@ -276,8 +315,7 @@ export class ProjectsService {
 
   async deleteImage(user: JwtPayload, projectId: number, imageId: number): Promise<{ deleted: true }> {
     try {
-      await this.findAccessibleProject(user, projectId);
-      const image = await this.findProjectImage(projectId, imageId);
+      const image = await this.findAccessibleProjectImageWithStorageKey(user, projectId, imageId);
       await this.imagesRepository.remove(image);
       await this.removeProjectImageFiles(image);
       return { deleted: true };
@@ -580,13 +618,13 @@ export class ProjectsService {
 
     try {
       // VI: Export bat buoc chay o backend de watermark khong bi client bo qua.
-      const image = await this.findAccessibleProjectImage(user, projectId, imageId);
+      const image = await this.findAccessibleProjectImageWithStorageKey(user, projectId, imageId);
       const assignedRegions = await this.loadAssignedRegionsForExport(projectId, imageId);
       if (assignedRegions.length === 0) {
         throw new BadRequestException('At least one assigned glass region is required before export.');
       }
 
-      const originalImage = await this.readUploadedImageSource(image.imageUrl);
+      const originalImage = await this.readUploadedImageSource(image);
       const width = originalImage.width;
       const height = originalImage.height;
       const copyrightText = this.configService.get<string>('EXPORT_COPYRIGHT_TEXT') ?? `© ${new Date().getFullYear()} GlassDemo. All rights reserved.`;
@@ -630,7 +668,7 @@ export class ProjectsService {
         return exportsRepository.save(created);
       });
 
-      // VI: TODO Sprint 11: ap dung rate limit export bang throttler khi module bao mat duoc them.
+      // VI: Controller ap dung throttler MVP; renderer nay van bat buoc watermark va luu file ngoai public upload.
       exportRecordCommitted = true;
       return this.toExportResponse(saved);
     } catch (error) {
@@ -698,15 +736,14 @@ export class ProjectsService {
     }).then((regions) => regions.filter((region) => region.glassProduct && region.panes.length > 0));
   }
 
-  private async readUploadedImageSource(imageUrl: string | null): Promise<ExportImageSource> {
-    if (!imageUrl || !imageUrl.startsWith('/uploads/')) {
+  private async readUploadedImageSource(image: ProjectImage): Promise<ExportImageSource> {
+    if (image.sourceType !== ProjectImageSourceType.Uploaded) {
       throw new BadRequestException('Only uploaded project images can be exported in this MVP.');
     }
 
-    const storageKey = imageUrl.slice('/uploads/'.length);
-    const filePath = this.resolveStorageKey(storageKey);
-    const mimeType = this.getImageMimeType(filePath);
+    const filePath = this.resolveStorageKey(this.getUploadedImageStorageKey(image));
     const buffer = await readFile(filePath);
+    const mimeType = this.validateStoredImageFile(filePath, buffer);
     const dimensions = this.getStoredImageDimensions(buffer, mimeType);
 
     return {
@@ -1021,6 +1058,22 @@ export class ProjectsService {
     return this.findProjectImage(projectId, imageId);
   }
 
+  private async findAccessibleProjectImageWithStorageKey(user: JwtPayload, projectId: number, imageId: number): Promise<ProjectImage> {
+    await this.findAccessibleProject(user, projectId);
+    const image = await this.imagesRepository
+      .createQueryBuilder('image')
+      .addSelect('image.storageKey')
+      .where('image.id = :imageId', { imageId })
+      .andWhere('image.projectId = :projectId', { projectId })
+      .getOne();
+
+    if (!image) {
+      throw new NotFoundException('Project image was not found.');
+    }
+
+    return image;
+  }
+
   private async findRegion(projectId: number, imageId: number, regionId: number): Promise<GlassRegion> {
     const region = await this.regionsRepository.findOne({
       where: { id: regionId, projectId, projectImageId: imageId },
@@ -1212,6 +1265,50 @@ export class ProjectsService {
     return originalName.replace(/[^\w\s.-]/g, '').trim().slice(0, 255) || 'uploaded-image';
   }
 
+  private buildProtectedImageUrl(projectId: number, imageId: number): string {
+    // VI: Luu route tuong doi theo convention API, khong dong cung API_PREFIX cau hinh moi truong.
+    return `/projects/${projectId}/images/${imageId}/file`;
+  }
+
+  private getUploadedImageStorageKey(image: ProjectImage): string {
+    if (image.storageKey) {
+      return image.storageKey;
+    }
+
+    const legacyPrefix = `/uploads/projects/${image.projectId}/`;
+    if (image.imageUrl?.startsWith(legacyPrefix)) {
+      // VI: Ban ghi cu chi duoc quy doi tu prefix upload du kien; resolveStorageKey tiep tuc chan traversal.
+      return image.imageUrl.slice('/uploads/'.length);
+    }
+
+    throw new NotFoundException('Uploaded project image file was not found.');
+  }
+
+  private validateStoredImageFile(filePath: string, buffer: Buffer): string {
+    const extension = extname(filePath).toLowerCase();
+    const mimeTypeByExtension: Record<string, string> = {
+      '.jpg': 'image/jpeg',
+      '.jpeg': 'image/jpeg',
+      '.png': 'image/png',
+      '.webp': 'image/webp',
+    };
+    const mimeType = mimeTypeByExtension[extension];
+    const signatureKind = this.detectImageSignature(buffer);
+    if (!mimeType) {
+      throw new NotFoundException('Uploaded project image file was not found.');
+    }
+    if (!signatureKind || !this.isSignatureConsistent(extension, mimeType, signatureKind)) {
+      // VI: Khong stream file upload neu noi dung khong con khop dinh dang anh duoc phep.
+      throw new NotFoundException('Uploaded project image file was not found.');
+    }
+
+    return mimeType;
+  }
+
+  private isFileNotFoundError(error: unknown): boolean {
+    return Boolean(error && typeof error === 'object' && 'code' in error && (error as { code?: unknown }).code === 'ENOENT');
+  }
+
   private getUploadRoot(): string {
     return resolve(this.configService.get<string>('UPLOAD_ROOT') ?? './uploads');
   }
@@ -1236,7 +1333,9 @@ export class ProjectsService {
     }
 
     const filePath = resolve(rootPath, normalizedKey);
-    if (!filePath.toLowerCase().startsWith(rootPath.toLowerCase())) {
+    const relativePath = relative(rootPath, filePath);
+    if (relativePath.startsWith('..') || isAbsolute(relativePath)) {
+      // VI: Kiem tra quan he thu muc thay vi prefix chuoi de chan path traversal/prefix collision.
       throw new BadRequestException('Storage path is invalid.');
     }
     return filePath;
@@ -1260,7 +1359,15 @@ export class ProjectsService {
       return;
     }
 
-    await Promise.all([this.removePublicUploadUrl(image.imageUrl), this.removePublicUploadUrl(image.thumbnailUrl)]);
+    try {
+      await this.removeStoredFile(this.resolveStorageKey(this.getUploadedImageStorageKey(image)));
+    } catch (error) {
+      if (!(error instanceof NotFoundException) && !(error instanceof BadRequestException)) {
+        throw error;
+      }
+    }
+
+    await this.removePublicUploadUrl(image.thumbnailUrl);
   }
 
   private async removePublicUploadUrl(url: string | null): Promise<void> {
@@ -1268,19 +1375,21 @@ export class ProjectsService {
       return;
     }
 
-    const relativePath = url.replace(/^\/uploads\//, '');
-    const uploadRoot = this.getUploadRoot();
-    const filePath = resolve(uploadRoot, relativePath);
-
-    if (!filePath.startsWith(uploadRoot)) {
-      return;
+    try {
+      const storageKey = url.slice('/uploads/'.length);
+      // VI: URL metadata chi duoc xoa file khi resolve ve nam trong upload root da kiem soat.
+      await this.removeStoredFile(this.resolveStorageKey(storageKey));
+    } catch (error) {
+      if (error instanceof BadRequestException) {
+        return;
+      }
+      throw error;
     }
-
-    await this.removeStoredFile(filePath);
   }
 
-  private isExpectedAccessError(error: unknown): error is NotFoundException | ForbiddenException {
-    return error instanceof NotFoundException || error instanceof ForbiddenException;
+  private isExpectedAccessError(error: unknown): error is NotFoundException | ForbiddenException | BadRequestException {
+    // VI: Validation/access loi an toan duoc giu dung ma HTTP, khong boc lai thanh loi he thong.
+    return error instanceof NotFoundException || error instanceof ForbiddenException || error instanceof BadRequestException;
   }
 
   private logAndThrow(action: string, message: string, error: unknown, context?: Record<string, string | number>): never {

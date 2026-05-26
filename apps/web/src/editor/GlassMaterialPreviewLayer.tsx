@@ -1,5 +1,5 @@
 import type { GlassMaterialType, GlassProduct } from '../catalog/glass-catalog.types';
-import { resolveProjectImageUrl } from '../projects/project-api';
+import { resolveCatalogTextureUrl } from '../projects/project-api';
 import type { GlassRegion } from '../projects/project.types';
 import { pointsToSvg } from '../projects/region-geometry';
 
@@ -19,7 +19,7 @@ export function GlassMaterialPreviewLayer({ regions }: { regions: GlassRegion[] 
             const id = getPaneId(region.id, pane.id);
             const product = region.glassProduct as GlassProduct;
             // VI: previewImageUrl chi dung cho card catalog; render vat lieu chi dung textureImageUrl, neu thieu thi fallback bang gradient/pattern nhe.
-            const textureUrl = resolveProjectImageUrl(product.textureImageUrl);
+            const textureUrl = resolveCatalogTextureUrl(product.textureImageUrl);
 
             return (
               <g key={`defs-${id}`}>
@@ -53,7 +53,7 @@ export function GlassMaterialPreviewLayer({ regions }: { regions: GlassRegion[] 
           const id = getPaneId(region.id, pane.id);
           const product = region.glassProduct as GlassProduct;
           // VI: Khong dung anh preview san pham lam texture pane de tranh cat thumbnail/photo vao vung kinh.
-          const textureUrl = resolveProjectImageUrl(product.textureImageUrl);
+          const textureUrl = resolveCatalogTextureUrl(product.textureImageUrl);
 
           return (
             <g key={`glass-preview-${id}`} clipPath={`url(#glass-clip-${id})`}>

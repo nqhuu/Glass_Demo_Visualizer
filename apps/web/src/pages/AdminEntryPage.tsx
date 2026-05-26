@@ -18,6 +18,7 @@ import type { GlassCategory, GlassProduct, GlassProductPayload } from '../catalo
 import { PageHeader } from '../components/PageHeader';
 import { ShellCard } from '../components/ShellCard';
 import { SelectField, TextField } from '../catalog/CatalogFormFields';
+import { logSafeUiError } from '../utils/safe-log';
 
 const emptyProductForm: GlassProductPayload = {
   name: '',
@@ -82,12 +83,7 @@ export function AdminEntryPage() {
       setProducts(loadedProducts);
     } catch (error) {
       // VI: Hien thong bao ngan gon, log ngu canh an toan va khong in token.
-      console.error({
-        module: 'AdminEntryPage',
-        action: 'loadCatalog',
-        message: 'Failed to load glass catalog',
-        error,
-      });
+      logSafeUiError('AdminEntryPage', 'loadCatalog', 'Failed to load glass catalog', error);
       setStatusMessage(t('catalog.messages.loadFailed'));
     }
   };
@@ -131,13 +127,7 @@ export function AdminEntryPage() {
       resetProductForm();
       await loadCatalog();
     } catch (error) {
-      console.error({
-        module: 'AdminEntryPage',
-        action: 'saveProduct',
-        productId: editingProductId,
-        message: 'Failed to save glass product',
-        error,
-      });
+      logSafeUiError('AdminEntryPage', 'saveProduct', 'Failed to save glass product', error, { productId: editingProductId ?? undefined });
       setStatusMessage(t('catalog.messages.productSaveFailed'));
     } finally {
       setIsSaving(false);
@@ -172,13 +162,7 @@ export function AdminEntryPage() {
       resetCategoryForm();
       await loadCatalog();
     } catch (error) {
-      console.error({
-        module: 'AdminEntryPage',
-        action: 'saveCategory',
-        categoryId: editingCategoryId,
-        message: 'Failed to save glass category',
-        error,
-      });
+      logSafeUiError('AdminEntryPage', 'saveCategory', 'Failed to save glass category', error, { categoryId: editingCategoryId ?? undefined });
       setStatusMessage(t('catalog.messages.categorySaveFailed'));
     } finally {
       setIsSaving(false);
@@ -226,13 +210,7 @@ export function AdminEntryPage() {
       await updateAdminGlassProduct(accessToken, product.id, { isActive: !product.isActive });
       await loadCatalog();
     } catch (error) {
-      console.error({
-        module: 'AdminEntryPage',
-        action: 'toggleProductActive',
-        productId: product.id,
-        message: 'Failed to update product active status',
-        error,
-      });
+      logSafeUiError('AdminEntryPage', 'toggleProductActive', 'Failed to update product active status', error, { productId: product.id });
       setStatusMessage(t('catalog.messages.statusFailed'));
     }
   };
@@ -247,13 +225,7 @@ export function AdminEntryPage() {
       await loadCatalog();
       setStatusMessage(t('catalog.messages.productDeleted'));
     } catch (error) {
-      console.error({
-        module: 'AdminEntryPage',
-        action: 'confirmDeleteProduct',
-        productId: product.id,
-        message: 'Failed to delete glass product',
-        error,
-      });
+      logSafeUiError('AdminEntryPage', 'confirmDeleteProduct', 'Failed to delete glass product', error, { productId: product.id });
       setStatusMessage(t('catalog.messages.productDeleteFailed'));
     }
   };
@@ -268,13 +240,7 @@ export function AdminEntryPage() {
       await loadCatalog();
       setStatusMessage(t('catalog.messages.categoryDeleted'));
     } catch (error) {
-      console.error({
-        module: 'AdminEntryPage',
-        action: 'confirmDeleteCategory',
-        categoryId: category.id,
-        message: 'Failed to delete glass category',
-        error,
-      });
+      logSafeUiError('AdminEntryPage', 'confirmDeleteCategory', 'Failed to delete glass category', error, { categoryId: category.id });
       setStatusMessage(t('catalog.messages.categoryDeleteFailed'));
     }
   };

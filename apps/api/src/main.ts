@@ -1,8 +1,6 @@
 import { Logger, ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
-import { NestExpressApplication } from '@nestjs/platform-express';
-import { resolve } from 'node:path';
 import { AppModule } from './app.module';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 
@@ -15,21 +13,36 @@ function getSafeBootstrapError(error: unknown): { errorName: string; errorCode?:
   return { errorName, errorCode };
 }
 
+function getCorsOrigins(configService: ConfigService): string | string[] {
+  const nodeEnv = configService.get<string>('NODE_ENV');
+  const configuredOrigin = configService.get<string>('CORS_ORIGIN')?.trim();
+
+  if (nodeEnv === 'production' && (!configuredOrigin || configuredOrigin.includes('*'))) {
+    // VI: Production phai khai bao origin cu the de khong vo tinh mo API cho moi website.
+    throw new Error('Unsafe production CORS configuration.');
+  }
+
+  const origins = (configuredOrigin || 'http://localhost:5173')
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+
+  return origins.length === 1 ? origins[0] : origins;
+}
+
 // VI: Khoi dong API va cau hinh cac lop bao ve co ban cho Sprint 0.
 async function bootstrap() {
   const logger = new Logger('Bootstrap');
 
   try {
-    const app = await NestFactory.create<NestExpressApplication>(AppModule);
+    const app = await NestFactory.create(AppModule);
     const configService = app.get(ConfigService);
     const apiPrefix = configService.get<string>('API_PREFIX', 'api');
-    const corsOrigin = configService.get<string>('CORS_ORIGIN', 'http://localhost:5173');
+    const corsOrigin = getCorsOrigins(configService);
     const port = configService.get<number>('PORT', 3000);
-    const uploadRoot = resolve(configService.get<string>('UPLOAD_ROOT') ?? './uploads');
 
     app.setGlobalPrefix(apiPrefix);
-    // VI: Chi public URL /uploads duoc expose, API khong tra ve duong dan filesystem noi bo.
-    app.useStaticAssets(uploadRoot, { prefix: '/uploads' });
+    // VI: Anh du an khong public qua /uploads; UI tai file qua endpoint JWT va ownership.
     app.enableCors({
       origin: corsOrigin,
       credentials: true,

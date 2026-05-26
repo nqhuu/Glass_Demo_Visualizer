@@ -1,7 +1,8 @@
-import { IsBoolean, IsEnum, IsHexColor, IsInt, IsNumber, IsOptional, IsString, IsUrl, Length, Max, Min, ValidateIf } from 'class-validator';
+import { IsBoolean, IsEnum, IsHexColor, IsInt, IsNumber, IsOptional, IsString, Length, Max, Min, ValidateIf } from 'class-validator';
 import { Type } from 'class-transformer';
 import { GlassMaterialType } from '../enums/glass-material-type.enum';
 import { GlassRealismPreset } from '../enums/glass-realism-preset.enum';
+import { IsCatalogMediaUrl } from './catalog-media-url.validator';
 
 // VI: DTO tao san pham kinh va profile vat lieu do admin quan ly, khong phai slider cho user thuong.
 export class CreateGlassProductDto {
@@ -59,14 +60,15 @@ export class CreateGlassProductDto {
   realismPreset!: GlassRealismPreset;
 
   @IsOptional()
-  @IsUrl({ require_protocol: true })
+  // VI: Null/chuoi trong xoa URL; URL co gia tri chi duoc dung HTTP(S) hoac asset catalog an toan.
+  @IsCatalogMediaUrl()
   @Length(0, 500)
-  previewImageUrl?: string;
+  previewImageUrl?: string | null;
 
   @IsOptional()
-  @IsUrl({ require_protocol: true })
+  @IsCatalogMediaUrl()
   @Length(0, 500)
-  textureImageUrl?: string;
+  textureImageUrl?: string | null;
 
   @IsOptional()
   @IsBoolean()

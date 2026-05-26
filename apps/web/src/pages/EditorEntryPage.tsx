@@ -30,9 +30,10 @@ import { GlassPreview } from '../catalog/GlassPreview';
 import { listActiveGlassProducts } from '../catalog/glass-catalog-api';
 import type { GlassProduct } from '../catalog/glass-catalog.types';
 import { GlassMaterialPreviewLayer } from '../editor/GlassMaterialPreviewLayer';
-import { assignGlassToRegion, createGlassRegion, deleteGlassRegion, downloadProjectExport, duplicateGlassRegion, exportProjectImage, getProject, listGlassRegions, listProjectImages, removeGlassFromRegion, resolveProjectImageUrl, updateGlassRegion } from '../projects/project-api';
+import { assignGlassToRegion, createGlassRegion, deleteGlassRegion, downloadProjectExport, duplicateGlassRegion, exportProjectImage, getProject, listGlassRegions, listProjectImages, removeGlassFromRegion, updateGlassRegion } from '../projects/project-api';
 import type { GlassRegion, GlassRegionBoundaryType, NormalizedPoint, Project, ProjectExport, ProjectImage } from '../projects/project.types';
 import { clampPoint, draftOverlapsRegions, generatePreviewPanes, pointsToSvg } from '../projects/region-geometry';
+import { type ProjectImageLoadStatus, useProjectImageSource } from '../projects/use-project-image-source';
 
 type EditorTool = 'select' | 'region' | 'rectangle' | 'grid' | 'copy' | 'delete' | 'glass' | 'export';
 type GlassLoadStatus = 'idle' | 'loading' | 'loaded' | 'error';
@@ -106,7 +107,8 @@ export function EditorEntryPage() {
 
   const selectedImage = useMemo(() => images.find((image) => image.id === numericImageId) ?? null, [images, numericImageId]);
   const selectedRegion = useMemo(() => regions.find((region) => region.id === selectedRegionId) ?? null, [regions, selectedRegionId]);
-  const imageUrl = resolveProjectImageUrl(selectedImage?.imageUrl ?? null);
+  // VI: Canvas tai anh uploaded bang blob co JWT; khong dua token vao URL src cua anh.
+  const { sourceUrl: imageUrl, status: imageLoadStatus, retry: retryImageLoad } = useProjectImageSource(accessToken, selectedImage, selectedImage?.imageUrl ?? null);
   const draftPanes = useMemo(() => (draft.points ? generatePreviewPanes(draft.points, draft.rows, draft.columns) : []), [draft.columns, draft.points, draft.rows]);
   const draftOverlaps = useMemo(() => (draft.points ? draftOverlapsRegions(draft.points, regions) : false), [draft.points, regions]);
   const draftTooSmall = useMemo(() => (draft.points ? getRegionSize(draft.points).width < 0.01 || getRegionSize(draft.points).height < 0.01 : true), [draft.points]);
@@ -486,6 +488,8 @@ export function EditorEntryPage() {
           <EditorCanvas
             image={selectedImage}
             imageUrl={imageUrl}
+            imageLoadStatus={imageLoadStatus}
+            onRetryImage={retryImageLoad}
             zoom={zoom}
             regions={regions}
             selectedRegionId={selectedRegionId}
@@ -572,6 +576,8 @@ export function EditorEntryPage() {
         <ExportDialog
           image={selectedImage}
           imageUrl={imageUrl}
+          imageLoadStatus={imageLoadStatus}
+          onRetryImage={retryImageLoad}
           latestExport={latestExport}
           isExporting={isExporting}
           messageKey={exportMessageKey}
@@ -677,6 +683,8 @@ function FloatingToolBar({ activeTool, onSelectTool }: { activeTool: EditorTool;
 function EditorCanvas({
   image,
   imageUrl,
+  imageLoadStatus,
+  onRetryImage,
   zoom,
   regions,
   selectedRegionId,
@@ -694,6 +702,8 @@ function EditorCanvas({
 }: {
   image: ProjectImage;
   imageUrl: string | null;
+  imageLoadStatus: ProjectImageLoadStatus;
+  onRetryImage: () => void;
   zoom: number;
   regions: GlassRegion[];
   selectedRegionId: number | null;
@@ -891,6 +901,17 @@ function EditorCanvas({
                 {t('editorEntry.canvas.regionToolsLater')}
               </div>
             ) : null}
+          </div>
+        ) : imageLoadStatus === 'loading' ? (
+          <div className="max-w-md rounded-md border border-neutral-200 bg-white px-5 py-8 text-center text-sm font-semibold text-neutral-600">
+            {t('editorEntry.canvas.imageLoading')}
+          </div>
+        ) : imageLoadStatus === 'error' ? (
+          <div className="max-w-md rounded-md border border-red-100 bg-white px-5 py-8 text-center">
+            <p className="text-sm font-semibold text-neutral-800">{t('editorEntry.canvas.imageLoadFailed')}</p>
+            <button className="mt-4 inline-flex min-h-10 items-center justify-center rounded-md border border-brand-red px-4 py-2 text-sm font-semibold text-brand-red" type="button" onClick={onRetryImage}>
+              {t('common.retry')}
+            </button>
           </div>
         ) : (
           <div className="max-w-md rounded-md border border-dashed border-neutral-300 bg-white px-5 py-8 text-center">
@@ -1488,6 +1509,8 @@ function ExportPanel({
 function ExportDialog({
   image,
   imageUrl,
+  imageLoadStatus,
+  onRetryImage,
   latestExport,
   isExporting,
   messageKey,
@@ -1497,6 +1520,8 @@ function ExportDialog({
 }: {
   image: ProjectImage;
   imageUrl: string | null;
+  imageLoadStatus: ProjectImageLoadStatus;
+  onRetryImage: () => void;
   latestExport: ProjectExport | null;
   isExporting: boolean;
   messageKey: string | null;
@@ -1522,7 +1547,15 @@ function ExportDialog({
         <div className="mt-5 grid gap-5 lg:grid-cols-[minmax(0,1.2fr)_minmax(18rem,0.8fr)]">
           <div className="rounded-md border border-neutral-200 bg-neutral-50 p-3">
             <p className="mb-3 text-sm font-semibold text-neutral-800">{t('editorEntry.export.previewTitle')}</p>
-            {imageUrl ? <img className="aspect-video w-full rounded-md object-cover" src={imageUrl} alt={image.title} /> : <div className="flex aspect-video items-center justify-center rounded-md bg-white text-sm text-neutral-500">{t('editorEntry.canvas.noImage')}</div>}
+            {imageUrl ? <img className="aspect-video w-full rounded-md object-cover" src={imageUrl} alt={image.title} /> : null}
+            {!imageUrl && imageLoadStatus === 'loading' ? <div className="flex aspect-video w-full items-center justify-center rounded-md bg-white text-sm text-neutral-500">{t('editorEntry.canvas.imageLoading')}</div> : null}
+            {!imageUrl && imageLoadStatus === 'error' ? (
+              <div className="flex aspect-video w-full flex-col items-center justify-center gap-3 rounded-md bg-white text-sm text-neutral-500">
+                <span>{t('editorEntry.canvas.imageLoadFailed')}</span>
+                <button className="rounded-md border border-brand-red px-3 py-2 font-semibold text-brand-red" type="button" onClick={onRetryImage}>{t('common.retry')}</button>
+              </div>
+            ) : null}
+            {!imageUrl && imageLoadStatus === 'idle' ? <div className="flex aspect-video w-full items-center justify-center rounded-md bg-white text-sm text-neutral-500">{t('editorEntry.canvas.emptyTitle')}</div> : null}
             <p className="mt-3 rounded-md bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-800">{t('editorEntry.export.previewNotice')}</p>
           </div>
 

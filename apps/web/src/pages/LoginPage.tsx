@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { Link, Navigate, useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/use-auth';
 import { LanguageSwitcher } from '../components/LanguageSwitcher';
+import { logSafeUiError } from '../utils/safe-log';
 
 // VI: Trang login co hien/an mat khau va lien ket den dang ky/quen mat khau.
 export function LoginPage() {
@@ -29,13 +30,7 @@ export function LoginPage() {
       await login(email, password);
       navigate('/dashboard', { replace: true });
     } catch (error) {
-      console.error({
-        module: 'LoginPage',
-        action: 'handleSubmit',
-        message: 'Login request failed',
-        errorName: error instanceof Error ? error.name : 'UnknownError',
-        errorMessage: error instanceof Error ? error.message : undefined,
-      });
+      logSafeUiError('LoginPage', 'handleSubmit', 'Login request failed', error);
       setErrorMessage(t('auth.loginFailed'));
     } finally {
       setIsSubmitting(false);

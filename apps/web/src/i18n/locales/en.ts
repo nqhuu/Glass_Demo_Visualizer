@@ -12,6 +12,7 @@ export const en = {
     languageSwitchLabel: 'Language',
     close: 'Close',
     cancel: 'Cancel',
+    retry: 'Retry',
   },
   auth: {
     kicker: 'Secure internal access',
@@ -179,6 +180,10 @@ export const en = {
     openEditorShell: 'Open editor',
     backToProjects: 'Back to projects',
     noThumbnail: 'No thumbnail',
+    imagePreview: {
+      loading: 'Loading protected image...',
+      retry: 'Unable to load image. Retry',
+    },
     imageSize: '{{width}} x {{height}} px',
     imageSizeUnknown: 'Image size not set',
     fields: {
@@ -291,6 +296,8 @@ export const en = {
       regionToolsLater: 'Choose Add region or select an existing region to adjust geometry and panes.',
       emptyTitle: 'No image URL available',
       emptyDescription: 'Upload a real project photo or add an image URL before opening this editor shell.',
+      imageLoading: 'Loading protected project image...',
+      imageLoadFailed: 'Unable to load this protected project image.',
     },
     regions: {
       title: 'Region list',

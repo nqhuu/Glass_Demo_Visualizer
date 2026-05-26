@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react
 import { currentUserRequest, loginRequest, registerRequest } from './auth-api';
 import { AuthContext, type AuthContextValue } from './auth-context';
 import type { AuthStatus, AuthUser } from './auth.types';
+import { logSafeUiError } from '../utils/safe-log';
 
 const ACCESS_TOKEN_KEY = 'glass-demo.access-token';
 
@@ -31,12 +32,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       } catch (error) {
         if (isActive) {
           // VI: Token het han hoac loi auth se duoc xoa, khong hien raw backend object tren UI.
-          console.error({
-            module: 'AuthProvider',
-            action: 'restoreSession',
-            message: 'Failed to restore authenticated session',
-            error,
-          });
+          logSafeUiError('AuthProvider', 'restoreSession', 'Failed to restore authenticated session', error);
           sessionStorage.removeItem(ACCESS_TOKEN_KEY);
           setAccessToken(null);
           setUser(null);

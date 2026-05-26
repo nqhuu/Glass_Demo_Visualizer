@@ -12,7 +12,6 @@ import type {
 } from './project.types';
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:3000/api';
-const apiAssetOrigin = new URL(apiBaseUrl).origin;
 
 // VI: Helper API du an gui JWT va chi hien message an toan len UI.
 async function projectRequest<T>(path: string, accessToken: string, init: RequestInit = {}): Promise<T> {
@@ -186,6 +185,11 @@ export function downloadProjectExport(accessToken: string, projectId: number, ex
   return projectBlobRequest(`/projects/${projectId}/exports/${exportId}/download`, accessToken);
 }
 
+// VI: Tai anh upload qua endpoint co JWT; khong dat access token trong URL cua the img.
+export function downloadProjectImageFile(accessToken: string, projectId: number, imageId: number): Promise<Blob> {
+  return projectBlobRequest(`/projects/${projectId}/images/${imageId}/file`, accessToken);
+}
+
 // VI: API region Sprint 8/9; backend van la nguon kiem tra ownership, overlap va gan mau kinh active.
 export function listGlassRegions(accessToken: string, projectId: number, imageId: number): Promise<GlassRegion[]> {
   return projectRequest<GlassRegion[]>(`/projects/${projectId}/images/${imageId}/regions`, accessToken);
@@ -243,7 +247,33 @@ export function resolveProjectImageUrl(url: string | null): string | null {
   }
 
   if (url.startsWith('/uploads/')) {
-    return `${apiAssetOrigin}${url}`;
+    // VI: Khong render URL uploads legacy truc tiep; anh upload phai di qua blob JWT.
+    return null;
+  }
+
+  return url;
+}
+
+export function resolveCatalogTextureUrl(url: string | null): string | null {
+  if (!url) {
+    return null;
+  }
+
+  const localPrefixes = ['/catalog-assets/', '/uploads/catalog/'];
+  const prefix = localPrefixes.find((candidate) => url.startsWith(candidate));
+
+  if (prefix) {
+    const fileName = url.slice(prefix.length);
+    if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]*\.(jpe?g|png|webp)$/i.test(fileName)) {
+      return null;
+    }
+
+    // VI: Texture public chi qua route catalog gioi han; khong dung endpoint anh project can JWT.
+    return `${apiBaseUrl}/catalog-assets/${encodeURIComponent(fileName)}`;
+  }
+
+  if (url.startsWith('/uploads/')) {
+    return null;
   }
 
   return url;

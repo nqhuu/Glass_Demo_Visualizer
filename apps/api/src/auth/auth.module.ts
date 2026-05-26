@@ -17,12 +17,21 @@ import { RolesGuard } from './guards/roles.guard';
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (configService: ConfigService) => ({
-        secret: configService.getOrThrow<string>('JWT_SECRET'),
-        signOptions: {
-          expiresIn: configService.get<string>('JWT_EXPIRES_IN', '15m'),
-        },
-      }),
+      useFactory: (configService: ConfigService) => {
+        const secret = configService.getOrThrow<string>('JWT_SECRET');
+
+        if (configService.get<string>('NODE_ENV') === 'production' && (secret.length < 32 || secret.includes('replace-with'))) {
+          // VI: Production khong duoc dung JWT secret placeholder hoac qua ngan.
+          throw new Error('Unsafe production JWT secret configuration.');
+        }
+
+        return {
+          secret,
+          signOptions: {
+            expiresIn: configService.get<string>('JWT_EXPIRES_IN', '15m'),
+          },
+        };
+      },
     }),
   ],
   controllers: [AuthController],

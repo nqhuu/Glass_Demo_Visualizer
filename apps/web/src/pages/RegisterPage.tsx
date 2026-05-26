@@ -4,6 +4,7 @@ import { Link, Navigate, useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/use-auth';
 import { LanguageSwitcher } from '../components/LanguageSwitcher';
 import { AuthInput, AuthShell, PasswordInput } from './LoginPage';
+import { logSafeUiError } from '../utils/safe-log';
 
 // VI: Trang dang ky cong khai, backend luon tao role user co ban.
 export function RegisterPage() {
@@ -36,13 +37,7 @@ export function RegisterPage() {
       await register(name, email, password);
       navigate('/dashboard', { replace: true });
     } catch (error) {
-      console.error({
-        module: 'RegisterPage',
-        action: 'handleSubmit',
-        message: 'Registration request failed',
-        errorName: error instanceof Error ? error.name : 'UnknownError',
-        errorMessage: error instanceof Error ? error.message : undefined,
-      });
+      logSafeUiError('RegisterPage', 'handleSubmit', 'Registration request failed', error);
       setErrorMessage(t('auth.registerFailed'));
     } finally {
       setIsSubmitting(false);

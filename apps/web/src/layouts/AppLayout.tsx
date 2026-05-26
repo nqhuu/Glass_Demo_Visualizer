@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { useAuth } from '../auth/use-auth';
 import { LanguageSwitcher } from '../components/LanguageSwitcher';
 import { getVisibleNavItems } from './navigation';
+import { logSafeUiError } from '../utils/safe-log';
 
 // VI: Layout chinh sau dang nhap, gom desktop sidebar, tablet rail va mobile bottom nav.
 export function AppLayout() {
@@ -24,14 +25,7 @@ export function AppLayout() {
       navigate('/login', { replace: true });
     } catch (error) {
       // VI: Logout chi xoa token local; log an toan neu navigation that bai.
-      console.error({
-        module: 'AppLayout',
-        action: 'handleLogout',
-        userId: user?.id,
-        message: 'Failed to complete logout navigation',
-        errorName: error instanceof Error ? error.name : 'UnknownError',
-        errorMessage: error instanceof Error ? error.message : undefined,
-      });
+      logSafeUiError('AppLayout', 'handleLogout', 'Failed to complete logout navigation', error, { userId: user?.id });
     }
   };
 

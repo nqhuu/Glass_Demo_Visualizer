@@ -9,6 +9,7 @@ import { ShellCard } from '../components/ShellCard';
 import { ProjectForm } from '../projects/ProjectForm';
 import { archiveProject, createProject, listProjects, updateProject } from '../projects/project-api';
 import type { Project, ProjectPayload, ProjectQuery, ProjectStatus } from '../projects/project.types';
+import { logSafeUiError } from '../utils/safe-log';
 
 const emptyProjectForm: ProjectPayload = {
   name: '',
@@ -46,7 +47,7 @@ export function ProjectsPage() {
       setMessage(null);
     } catch (error) {
       // VI: Loi load du an duoc hien bang message ngan, khong dump raw object.
-      console.error({ module: 'ProjectsPage', action: 'loadProjects', message: 'Failed to load projects', error });
+      logSafeUiError('ProjectsPage', 'loadProjects', 'Failed to load projects', error);
       setMessage(t('projects.messages.loadFailed'));
     } finally {
       setIsLoading(false);
@@ -77,7 +78,7 @@ export function ProjectsPage() {
       setSelectedProject(null);
       await loadProjects();
     } catch (error) {
-      console.error({ module: 'ProjectsPage', action: 'handleSubmit', projectId: selectedProject?.id, message: 'Failed to save project', error });
+      logSafeUiError('ProjectsPage', 'handleSubmit', 'Failed to save project', error, { projectId: selectedProject?.id });
       setMessage(t('projects.messages.saveFailed'));
     } finally {
       setIsSaving(false);
@@ -108,7 +109,7 @@ export function ProjectsPage() {
       setMessage(t('projects.messages.archived'));
       await loadProjects();
     } catch (error) {
-      console.error({ module: 'ProjectsPage', action: 'handleArchive', projectId: project.id, message: 'Failed to archive project', error });
+      logSafeUiError('ProjectsPage', 'handleArchive', 'Failed to archive project', error, { projectId: project.id });
       setMessage(t('projects.messages.archiveFailed'));
     }
   };

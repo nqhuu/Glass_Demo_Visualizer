@@ -1,7 +1,8 @@
 import { Type } from 'class-transformer';
-import { IsBoolean, IsEnum, IsHexColor, IsInt, IsNumber, IsOptional, IsString, IsUrl, Length, Max, Min, ValidateIf } from 'class-validator';
+import { IsBoolean, IsEnum, IsHexColor, IsInt, IsNumber, IsOptional, IsString, Length, Max, Min, ValidateIf } from 'class-validator';
 import { GlassMaterialType } from '../enums/glass-material-type.enum';
 import { GlassRealismPreset } from '../enums/glass-realism-preset.enum';
+import { IsCatalogMediaUrl } from './catalog-media-url.validator';
 
 // VI: DTO cap nhat san pham kinh cho phep sua tung field profile vat lieu.
 export class UpdateGlassProductDto {
@@ -68,14 +69,15 @@ export class UpdateGlassProductDto {
   realismPreset?: GlassRealismPreset;
 
   @IsOptional()
-  @IsUrl({ require_protocol: true })
+  // VI: Undefined giu nguyen URL hien tai; null/chuoi trong xoa URL mot cach chu dong.
+  @IsCatalogMediaUrl()
   @Length(0, 500)
-  previewImageUrl?: string;
+  previewImageUrl?: string | null;
 
   @IsOptional()
-  @IsUrl({ require_protocol: true })
+  @IsCatalogMediaUrl()
   @Length(0, 500)
-  textureImageUrl?: string;
+  textureImageUrl?: string | null;
 
   @IsOptional()
   @IsBoolean()

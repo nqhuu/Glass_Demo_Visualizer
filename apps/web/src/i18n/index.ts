@@ -2,6 +2,7 @@ import i18n from 'i18next';
 import { initReactI18next } from 'react-i18next';
 import { en } from './locales/en';
 import { vi } from './locales/vi';
+import { logSafeUiError } from '../utils/safe-log';
 
 const defaultLocale = import.meta.env.VITE_DEFAULT_LOCALE === 'en' ? 'en' : 'vi';
 
@@ -20,12 +21,7 @@ try {
   });
 } catch (error) {
   // VI: Loi i18n khong duoc chua thong tin nhay cam, giup debug nhanh khi cau hinh sai.
-  console.error({
-    module: 'I18n',
-    action: 'init',
-    message: 'Failed to initialize translations',
-    error,
-  });
+  logSafeUiError('I18n', 'init', 'Failed to initialize translations', error);
 }
 
 export default i18n;

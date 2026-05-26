@@ -12,6 +12,7 @@ export const vi = {
     close: 'Đóng',
     cancel: 'Hủy',
     languageSwitchLabel: 'Ngôn ngữ',
+    retry: 'Thử lại',
   },
   auth: {
     kicker: 'Truy cập nội bộ an toàn',
@@ -179,6 +180,10 @@ export const vi = {
     openEditorShell: 'Mở editor',
     backToProjects: 'Quay lại dự án',
     noThumbnail: 'Chưa có thumbnail',
+    imagePreview: {
+      loading: 'Đang tải ảnh được bảo vệ...',
+      retry: 'Không tải được ảnh. Thử lại',
+    },
     imageSize: '{{width}} x {{height}} px',
     imageSizeUnknown: 'Chưa đặt kích thước ảnh',
     fields: {
@@ -291,6 +296,8 @@ export const vi = {
       regionToolsLater: 'Chọn Thêm vùng hoặc chọn vùng đã lưu để chỉnh hình học và pane.',
       emptyTitle: 'Chưa có URL ảnh',
       emptyDescription: 'Hãy upload ảnh công trình thật hoặc thêm URL ảnh trước khi mở editor shell này.',
+      imageLoading: 'Đang tải ảnh dự án được bảo vệ...',
+      imageLoadFailed: 'Không tải được ảnh dự án được bảo vệ này.',
     },
     regions: {
       title: 'Danh sách vùng',

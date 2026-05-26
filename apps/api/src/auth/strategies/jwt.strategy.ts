@@ -20,7 +20,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   }
 
   async validate(payload: JwtPayload): Promise<JwtPayload> {
-    if (!payload.sub || !payload.email || !payload.role) {
+    if (!payload.sub || !payload.role) {
       throw new UnauthorizedException('Invalid access token.');
     }
 
@@ -32,7 +32,6 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
 
     return {
       sub: user.id,
-      email: user.email,
       role: user.role,
     };
   }

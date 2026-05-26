@@ -1,4 +1,5 @@
 import { Body, Controller, Get, Post, UseGuards } from '@nestjs/common';
+import { ThrottlerGuard } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 import { CurrentUser } from './decorators/current-user.decorator';
 import { Roles } from './decorators/roles.decorator';
@@ -17,7 +18,8 @@ export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
   @Post('login')
-  // VI: TODO Sprint 11: them rate limiting cho login theo SECURITY.md.
+  @UseGuards(ThrottlerGuard)
+  // VI: Gioi han login theo IP trong MVP de giam thu mat khau lap lai.
   login(@Body() loginDto: LoginDto) {
     return this.authService.login(loginDto);
   }

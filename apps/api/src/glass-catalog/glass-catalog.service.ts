@@ -1,5 +1,8 @@
 import { BadRequestException, Injectable, InternalServerErrorException, Logger, NotFoundException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
+import { readFile } from 'node:fs/promises';
+import { extname, isAbsolute, relative, resolve } from 'node:path';
 import { FindOptionsWhere, Like, Repository } from 'typeorm';
 import { CreateGlassCategoryDto } from './dto/create-glass-category.dto';
 import { CreateGlassProductDto } from './dto/create-glass-product.dto';
@@ -8,6 +11,17 @@ import { UpdateGlassCategoryDto } from './dto/update-glass-category.dto';
 import { UpdateGlassProductDto } from './dto/update-glass-product.dto';
 import { GlassCategory } from './glass-category.entity';
 import { GlassProduct } from './glass-product.entity';
+
+interface SafeCatalogErrorLog {
+  errorName: string;
+  errorCode?: string;
+  errorMessage: string;
+}
+
+interface CatalogAssetResponse {
+  buffer: Buffer;
+  contentType: 'image/jpeg' | 'image/png' | 'image/webp';
+}
 
 // VI: Service xu ly CRUD catalog kinh va bao ve loi database bang thong bao an toan.
 @Injectable()
@@ -19,6 +33,7 @@ export class GlassCatalogService {
     private readonly categoriesRepository: Repository<GlassCategory>,
     @InjectRepository(GlassProduct)
     private readonly productsRepository: Repository<GlassProduct>,
+    private readonly configService: ConfigService,
   ) {}
 
   async listCategories(): Promise<GlassCategory[]> {
@@ -53,7 +68,7 @@ export class GlassCatalogService {
 
       return await this.categoriesRepository.save(category);
     } catch (error) {
-      this.logAndThrow('createCategory', 'Unable to create glass category.', error, { slug: dto.slug });
+      this.logAndThrow('createCategory', 'Unable to create glass category.', error);
     }
   }
 
@@ -122,6 +137,32 @@ export class GlassCatalogService {
     return this.listProducts({ ...query, isActive: true });
   }
 
+  async getCatalogAsset(fileName: string): Promise<CatalogAssetResponse> {
+    try {
+      const contentType = this.getCatalogAssetContentType(fileName);
+      const catalogRoot = resolve(this.configService.get<string>('UPLOAD_ROOT') ?? './uploads', 'catalog');
+      const absolutePath = resolve(catalogRoot, fileName);
+      const relativePath = relative(catalogRoot, absolutePath);
+
+      // VI: Chi doc file nam trong thu muc catalog, tranh traversal sang anh du an hoac file may chu.
+      if (isAbsolute(relativePath) || relativePath.startsWith('..')) {
+        throw new NotFoundException('Catalog asset was not found.');
+      }
+
+      const buffer = await readFile(absolutePath);
+      if (!this.hasMatchingImageSignature(buffer, contentType)) {
+        throw new NotFoundException('Catalog asset was not found.');
+      }
+
+      return { buffer, contentType };
+    } catch (error) {
+      if (error instanceof NotFoundException || this.isMissingFileError(error)) {
+        throw new NotFoundException('Catalog asset was not found.');
+      }
+      this.logAndThrow('getCatalogAsset', 'Unable to load catalog asset.', error);
+    }
+  }
+
   async createProduct(dto: CreateGlassProductDto): Promise<GlassProduct> {
     try {
       await this.ensureCategoryExists(dto.categoryId);
@@ -132,7 +173,7 @@ export class GlassCatalogService {
       if (error instanceof NotFoundException) {
         throw error;
       }
-      this.logAndThrow('createProduct', 'Unable to create glass product.', error, { code: dto.code });
+      this.logAndThrow('createProduct', 'Unable to create glass product.', error);
     }
   }
 
@@ -201,15 +242,27 @@ export class GlassCatalogService {
     dto: CreateGlassProductDto | UpdateGlassProductDto,
     current?: GlassProduct,
   ): Partial<GlassProduct> {
+    const previewImageUrl = this.normalizeOptionalMediaUrl(dto.previewImageUrl);
+    const textureImageUrl = this.normalizeOptionalMediaUrl(dto.textureImageUrl);
+
     return {
       ...dto,
       description: dto.description === undefined ? current?.description : dto.description.trim() || null,
       categoryId: dto.categoryId === undefined ? current?.categoryId : dto.categoryId,
-      previewImageUrl: dto.previewImageUrl === undefined ? current?.previewImageUrl : dto.previewImageUrl.trim() || null,
-      textureImageUrl: dto.textureImageUrl === undefined ? current?.textureImageUrl : dto.textureImageUrl.trim() || null,
+      previewImageUrl: previewImageUrl === undefined ? current?.previewImageUrl ?? null : previewImageUrl,
+      textureImageUrl: textureImageUrl === undefined ? current?.textureImageUrl ?? null : textureImageUrl,
       isActive: dto.isActive ?? current?.isActive ?? true,
       sortOrder: dto.sortOrder ?? current?.sortOrder ?? 0,
     };
+  }
+
+  private normalizeOptionalMediaUrl(value: string | null | undefined): string | null | undefined {
+    // VI: Undefined giu gia tri khi update; null/chuoi trong xoa URL; string hop le duoc trim truoc khi luu.
+    if (value === undefined || value === null) {
+      return value;
+    }
+
+    return value.trim() || null;
   }
 
   private async ensureCategoryExists(categoryId?: number | null): Promise<void> {
@@ -224,14 +277,59 @@ export class GlassCatalogService {
     }
   }
 
+  private getCatalogAssetContentType(fileName: string): CatalogAssetResponse['contentType'] {
+    // VI: Route public catalog chi cho phep ten file server an toan va dinh dang anh raster da kiem tra.
+    if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]*\.(jpe?g|png|webp)$/i.test(fileName)) {
+      throw new NotFoundException('Catalog asset was not found.');
+    }
+
+    switch (extname(fileName).toLowerCase()) {
+      case '.jpg':
+      case '.jpeg':
+        return 'image/jpeg';
+      case '.png':
+        return 'image/png';
+      case '.webp':
+        return 'image/webp';
+      default:
+        throw new NotFoundException('Catalog asset was not found.');
+    }
+  }
+
+  private hasMatchingImageSignature(buffer: Buffer, contentType: CatalogAssetResponse['contentType']): boolean {
+    if (contentType === 'image/jpeg') {
+      return buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff;
+    }
+    if (contentType === 'image/png') {
+      return buffer.length >= 8 && buffer.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+    }
+    return buffer.length >= 12 && buffer.toString('ascii', 0, 4) === 'RIFF' && buffer.toString('ascii', 8, 12) === 'WEBP';
+  }
+
+  private isMissingFileError(error: unknown): boolean {
+    return Boolean(error && typeof error === 'object' && 'code' in error && (error as { code?: unknown }).code === 'ENOENT');
+  }
+
   private logAndThrow(action: string, message: string, error: unknown, context?: Record<string, string | number>): never {
     this.logger.error({
       module: 'GlassCatalogService',
       action,
       ...(context ?? {}),
       message,
-      error,
+      ...this.sanitizeErrorForLog(error),
     });
     throw new InternalServerErrorException(message);
+  }
+
+  private sanitizeErrorForLog(error: unknown): SafeCatalogErrorLog {
+    // VI: Khong ghi raw loi/du lieu catalog do chung co the chua gia tri nguoi dung gui len.
+    const errorRecord = typeof error === 'object' && error !== null ? (error as { code?: unknown }) : {};
+    const errorCode = typeof errorRecord.code === 'string' || typeof errorRecord.code === 'number' ? String(errorRecord.code) : undefined;
+
+    return {
+      errorName: error instanceof Error ? error.name : 'UnknownError',
+      errorCode,
+      errorMessage: 'Catalog operation failed.',
+    };
   }
 }

@@ -1,5 +1,6 @@
 import { Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post, Query, Res, StreamableFile, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
+import { ThrottlerGuard } from '@nestjs/throttler';
 import type { Response } from 'express';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -86,8 +87,9 @@ export class ProjectsController {
   }
 
   @Post(':projectId/images/upload')
+  @UseGuards(ThrottlerGuard)
   @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 10 * 1024 * 1024 } }))
-  // VI: Upload anh that cho du an; service se validate file va ownership truoc khi luu metadata.
+  // VI: Upload anh that bi gioi han tan suat; service van validate file va ownership truoc khi luu.
   uploadImage(
     @CurrentUser() user: JwtPayload,
     @Param('projectId', ParseIntPipe) projectId: number,
@@ -97,8 +99,24 @@ export class ProjectsController {
     return this.projectsService.uploadImage(user, projectId, file, dto);
   }
 
+  @Get(':projectId/images/:imageId/file')
+  // VI: File anh du an chi duoc tra sau khi JWT va ownership cua project/image da duoc xac minh.
+  async getImageFile(
+    @CurrentUser() user: JwtPayload,
+    @Param('projectId', ParseIntPipe) projectId: number,
+    @Param('imageId', ParseIntPipe) imageId: number,
+    @Res({ passthrough: true }) response: Response,
+  ): Promise<StreamableFile> {
+    const file = await this.projectsService.getImageFile(user, projectId, imageId);
+    response.setHeader('Content-Type', file.contentType);
+    response.setHeader('Content-Disposition', `inline; filename="${file.fileName}"`);
+    response.setHeader('Cache-Control', 'private, no-store, max-age=0');
+    return new StreamableFile(file.buffer);
+  }
+
   @Post(':projectId/images/:imageId/export-demo')
-  // VI: Export demo anh du an tren backend de bat buoc watermark va khong lo duong dan noi bo.
+  @UseGuards(ThrottlerGuard)
+  // VI: Export duoc gioi han tan suat va thuc hien backend de bat buoc watermark.
   exportDemoImage(
     @CurrentUser() user: JwtPayload,
     @Param('projectId', ParseIntPipe) projectId: number,

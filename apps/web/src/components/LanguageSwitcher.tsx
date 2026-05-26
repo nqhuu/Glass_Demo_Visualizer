@@ -1,5 +1,6 @@
 import { useTranslation } from 'react-i18next';
 import { Languages } from 'lucide-react';
+import { logSafeUiError } from '../utils/safe-log';
 
 // VI: Nut doi ngon ngu gon VI/EN dung chung cho login va app shell.
 export function LanguageSwitcher() {
@@ -9,13 +10,7 @@ export function LanguageSwitcher() {
     try {
       await i18n.changeLanguage(language);
     } catch (error) {
-      console.error({
-        module: 'LanguageSwitcher',
-        action: 'switchLanguage',
-        language,
-        message: 'Failed to change language',
-        error,
-      });
+      logSafeUiError('LanguageSwitcher', 'switchLanguage', 'Failed to change language', error, { language });
     }
   };
 

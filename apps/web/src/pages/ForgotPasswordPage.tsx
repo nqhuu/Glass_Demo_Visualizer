@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom';
 import { forgotPasswordRequest } from '../auth/auth-api';
 import { LanguageSwitcher } from '../components/LanguageSwitcher';
 import { AuthInput, AuthShell } from './LoginPage';
+import { logSafeUiError } from '../utils/safe-log';
 
 // VI: Trang yeu cau reset mat khau, khong tiet lo email co ton tai hay khong.
 export function ForgotPasswordPage() {
@@ -20,13 +21,7 @@ export function ForgotPasswordPage() {
       await forgotPasswordRequest(email);
       setMessage(t('auth.forgotPasswordSuccess'));
     } catch (error) {
-      console.error({
-        module: 'ForgotPasswordPage',
-        action: 'handleSubmit',
-        message: 'Forgot password request failed',
-        errorName: error instanceof Error ? error.name : 'UnknownError',
-        errorMessage: error instanceof Error ? error.message : undefined,
-      });
+      logSafeUiError('ForgotPasswordPage', 'handleSubmit', 'Forgot password request failed', error);
       setMessage(t('auth.forgotPasswordSuccess'));
     } finally {
       setIsSubmitting(false);
