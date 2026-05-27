@@ -44,8 +44,8 @@ export interface GlassProductPayload {
   transmissionLevel: number;
   shadowLevel: number;
   realismPreset: GlassRealismPreset;
-  previewImageUrl?: string;
-  textureImageUrl?: string;
+  previewImageUrl?: string | null;
+  textureImageUrl?: string | null;
   isActive: boolean;
   sortOrder: number;
 }

@@ -73,7 +73,7 @@ const mobileTools = editorTools.filter((tool) => ['select', 'region', 'rectangle
 const zoomOptions = [75, 100, 125];
 const defaultDraft: DraftRegion = { name: '', points: null, rows: 2, columns: 2 };
 
-// VI: Trang editor quan ly region/pane, gan mau kinh va export demo co watermark o Sprint 10.
+// VI: Trang editor hoan chinh luong demo noi bo: tao vung, gan kinh va export co watermark.
 export function EditorEntryPage() {
   const { t } = useTranslation();
   const { projectId, imageId } = useParams();
@@ -468,7 +468,12 @@ export function EditorEntryPage() {
 
   return (
     <div className="flex min-h-screen flex-col bg-[#f7f8fa] text-neutral-950">
-      <EditorTopBar project={project} image={selectedImage} saveStatus={saveStatus} />
+      <EditorTopBar
+        project={project}
+        image={selectedImage}
+        saveStatus={saveStatus}
+        onOpenExport={() => setIsExportDialogOpen(true)}
+      />
       {messageKey ? <div className="mx-3 mt-3 rounded-md border border-red-100 bg-red-50 px-4 py-3 text-sm font-semibold text-red-800 lg:mx-5">{t(messageKey)}</div> : null}
 
       <div className="grid flex-1 grid-rows-[auto_1fr_auto] gap-3 p-3 pb-28 lg:grid-cols-[18rem_minmax(0,1fr)_22rem] lg:grid-rows-1 lg:gap-4 lg:p-5">
@@ -591,7 +596,17 @@ export function EditorEntryPage() {
   );
 }
 
-function EditorTopBar({ project, image, saveStatus }: { project: Project; image: ProjectImage; saveStatus: SaveStatus }) {
+function EditorTopBar({
+  project,
+  image,
+  saveStatus,
+  onOpenExport,
+}: {
+  project: Project;
+  image: ProjectImage;
+  saveStatus: SaveStatus;
+  onOpenExport: () => void;
+}) {
   const { t } = useTranslation();
 
   return (
@@ -634,7 +649,11 @@ function EditorTopBar({ project, image, saveStatus }: { project: Project; image:
             <Save size={16} />
             {t('editorEntry.topBar.save')}
           </button>
-          <button className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md bg-brand-red px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-70" type="button" disabled>
+          <button
+            className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md bg-brand-red px-4 py-2 text-sm font-semibold text-white"
+            type="button"
+            onClick={onOpenExport}
+          >
             <Download size={16} />
             <span className="hidden sm:inline">{t('editorEntry.exportButton')}</span>
           </button>

@@ -94,8 +94,24 @@ export function ProductForm({
           <RangeField label={t('catalog.fields.shadowLevel')} value={productForm.shadowLevel} onChange={(shadowLevel) => onChange({ ...productForm, shadowLevel })} />
         </div>
         <div className="grid gap-3 sm:grid-cols-2">
-          <TextField label={t('catalog.fields.previewImageUrl')} value={productForm.previewImageUrl ?? ''} onChange={(previewImageUrl) => onChange({ ...productForm, previewImageUrl })} />
-          <TextField label={t('catalog.fields.textureImageUrl')} value={productForm.textureImageUrl ?? ''} onChange={(textureImageUrl) => onChange({ ...productForm, textureImageUrl })} />
+          <div>
+            <TextField
+              label={t('catalog.fields.previewImageUrl')}
+              value={productForm.previewImageUrl ?? ''}
+              placeholder={t('catalog.form.previewImageExample')}
+              onChange={(previewImageUrl) => onChange({ ...productForm, previewImageUrl })}
+            />
+            <p className="mt-1 text-xs leading-5 text-neutral-500">{t('catalog.form.previewImageHelp')}</p>
+          </div>
+          <div>
+            <TextField
+              label={t('catalog.fields.textureImageUrl')}
+              value={productForm.textureImageUrl ?? ''}
+              placeholder={t('catalog.form.textureImageExample')}
+              onChange={(textureImageUrl) => onChange({ ...productForm, textureImageUrl })}
+            />
+            <p className="mt-1 text-xs leading-5 text-neutral-500">{t('catalog.form.textureImageHelp')}</p>
+          </div>
         </div>
         <div className="flex flex-wrap items-center gap-3">
           <label className="flex items-center gap-2 text-sm font-semibold text-neutral-800">

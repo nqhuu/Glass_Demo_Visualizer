@@ -8,10 +8,10 @@ Internal web app for realistic glass placement demos.
 
 The app lets internal staff create demo images by placing predefined glass samples into selected regions on project photos.
 
-It will support:
+The internal MVP includes:
 - JWT login
 - admin glass catalog
-- company branding
+- required export watermark branding
 - project management
 - multiple images per project
 - multiple non-overlapping glass regions per image
@@ -25,19 +25,19 @@ This is not a color overlay editor.
 
 The app must simulate real glass placement into windows, balconies, railings, facades, doors, and aluminum-frame areas.
 
-## Sprint 0 structure
+## Workspace structure
 
 ```text
 apps/
   web/      React + TypeScript + Vite + Tailwind + i18n
-  api/      NestJS + TypeORM + MySQL + JWT-ready module structure
+  api/      NestJS + TypeORM + MySQL + JWT APIs
 packages/
   shared/   Shared TypeScript types
 docs/
-  ui/       Future UI reference images
+  ui/       UI reference images
 ```
 
-## Setup
+## Internal demo setup
 
 Install dependencies:
 
@@ -77,6 +77,8 @@ Run the backend:
 npm run dev:api
 ```
 
+When `NODE_ENV=development` and `SEED_DEMO_DATA_ENABLED=true`, backend startup runs the idempotent demo seed. It creates missing demo catalog records and the configured local demo user without duplicating existing email/code/slug values.
+
 Useful checks:
 
 ```bash
@@ -91,27 +93,40 @@ npm run build
 - Backend health check: `http://localhost:3000/api/health`
 - MySQL: `localhost:3306`
 
-## Sprint 1 local authentication
+## Local demo accounts
 
-The backend seeds one local admin when these API env values are present:
+Development startup seeds the configured local accounts from `apps/api/.env`:
 
 ```text
 SEED_ADMIN_NAME
 SEED_ADMIN_EMAIL
 SEED_ADMIN_PASSWORD
+SEED_DEMO_DATA_ENABLED
+SEED_DEMO_USER_NAME
+SEED_DEMO_USER_EMAIL
+SEED_DEMO_USER_PASSWORD
 ```
 
-Default local example values are listed in `apps/api/.env.example`. Change them before shared team use.
+The default `.env.example` credentials for local testing are:
 
-Auth endpoints added in Sprint 1:
+```text
+Admin:       admin@example.local / change-this-local-admin-password
+Demo user:   consultant@example.local / change-this-local-demo-password
+```
+
+These accounts exist only when the development seed configuration is enabled. Change passwords before shared team use and never reuse them in deployment.
+
+Relevant auth endpoints:
 
 - `POST /api/auth/login`
 - `GET /api/auth/me`
 - `GET /api/auth/admin-example`
 
-## Sprint 3 local glass catalog
+## Demo glass catalog
 
-Admin catalog endpoints added in Sprint 3:
+With `SEED_DEMO_DATA_ENABLED=true`, startup also creates active, procedural demo glass samples if their unique codes do not already exist. It does not publish project photos or require public texture files.
+
+Admin catalog endpoints:
 
 - `GET /api/admin/glass-categories`
 - `POST /api/admin/glass-categories`
@@ -122,7 +137,7 @@ Admin catalog endpoints added in Sprint 3:
 - `PATCH /api/admin/glass-products/:id`
 - `DELETE /api/admin/glass-products/:id`
 
-Active catalog endpoints for later editor use:
+Active catalog endpoints used by the editor:
 
 - `GET /api/glass-categories`
 - `GET /api/glass-products`
@@ -132,6 +147,27 @@ Active catalog endpoints for later editor use:
 - Uploaded project photos are loaded through the JWT-protected `GET /api/projects/:projectId/images/:imageId/file` endpoint, not a public uploads directory.
 - Local material preview/texture assets may be placed in `UPLOAD_ROOT/catalog` and referenced as `/catalog-assets/<safe-file-name>` or legacy `/uploads/catalog/<safe-file-name>`. Only flat safe JPG, JPEG, PNG, or WEBP filenames are accepted; external asset URLs must use `http://` or `https://`. The API exposes catalog textures through `GET /api/catalog-assets/:fileName`.
 - The MVP still stores files on the local filesystem; private object storage is a future deployment improvement.
+
+## Demo workflow
+
+1. Sign in as the demo user or admin.
+2. Open **Projects**, create a consultation project, and upload a JPG, PNG, or WEBP project photo.
+3. Open the uploaded image in the editor; protected project media is fetched with the authenticated API flow.
+4. Draw one or more non-overlapping regions, set rows and columns, and save the generated panes.
+5. Assign active predefined glass products and check the restrained material preview.
+6. Select **Export demo**; every export includes the required watermark.
+7. Return to project detail to view and download export history.
+8. Sign in as admin to manage catalog products and optional safe preview/texture URLs.
+
+Use [DEMO_CHECKLIST.md](DEMO_CHECKLIST.md) when validating a release candidate.
+
+## Troubleshooting
+
+- Database schema error after pulling changes: run `npm --workspace apps/api run migration:run` and restart the API.
+- Local admin or demo user missing: confirm `NODE_ENV=development`, required seed values, and `SEED_DEMO_DATA_ENABLED=true` for the demo user/catalog, then restart the API.
+- Project image does not preview: ensure the API is running and the session is valid; project images are not publicly served from `/uploads/projects`.
+- Catalog texture is rejected: use a safe `http(s)` URL or a local flat JPG/PNG/WEBP asset such as `/catalog-assets/sample.png`.
+- Export fails: assign an active glass product to at least one saved region before exporting.
 
 ## Files Codex must read
 
@@ -143,12 +179,6 @@ Before coding, Codex must read:
 - `ERROR_HANDLING.md`
 - `UI_PROMPTS.md`
 - `README.md`
-
-## Implementation workflow
-
-Work by sprint or small task only. Do not build the full app in one step.
-
-Sprint 0 provides only the foundation. Authentication, projects, editor behavior, rendering, admin CRUD, and export are intentionally left for later sprints.
 
 ## UI image workflow
 

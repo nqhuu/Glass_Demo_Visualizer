@@ -15,6 +15,7 @@
 - Login, project image upload, and export POST endpoints have MVP in-memory rate limiting through `@nestjs/throttler`.
 - Production startup rejects missing or wildcard `CORS_ORIGIN`, missing database passwords, schema synchronization, and weak/placeholder JWT secrets.
 - Backend and frontend failure logging has been sanitized to avoid raw errors, payloads, query strings, tokens, hashes and filesystem paths.
+- Optional internal demo users and catalog records seed only in development when explicitly enabled; seeded passwords are hashed and public registration still cannot create admins.
 
 ## Configuration
 
@@ -22,6 +23,7 @@
 - Set explicit `CORS_ORIGIN` in production; multiple trusted origins may be comma-separated.
 - Configure `RATE_LIMIT_TTL_MS` and `RATE_LIMIT_MAX_REQUESTS` for expected internal traffic.
 - Local admin seeding runs only when `NODE_ENV=development`.
+- Set `SEED_DEMO_DATA_ENABLED=true` only for local/internal demo environments that require sample users or catalog data.
 
 ## Known Limitations
 

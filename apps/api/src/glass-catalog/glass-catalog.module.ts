@@ -1,14 +1,15 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { GlassCatalogController } from './glass-catalog.controller';
+import { GlassCatalogSeedService } from './glass-catalog-seed.service';
 import { GlassCatalogService } from './glass-catalog.service';
 import { GlassCategory } from './glass-category.entity';
 import { GlassProduct } from './glass-product.entity';
 
-// VI: Module catalog kinh quan ly danh muc, san pham va profile vat lieu admin.
+// VI: Module catalog kinh quan ly san pham va seed du lieu demo local co kiem soat.
 @Module({
   imports: [TypeOrmModule.forFeature([GlassCategory, GlassProduct])],
   controllers: [GlassCatalogController],
-  providers: [GlassCatalogService],
+  providers: [GlassCatalogService, GlassCatalogSeedService],
 })
 export class GlassCatalogModule {}

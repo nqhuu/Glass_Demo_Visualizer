@@ -45,7 +45,7 @@ const emptyCategoryForm: CategoryFormState = {
   sortOrder: 0,
 };
 
-// VI: Trang admin catalog Sprint 3 ket noi CRUD danh muc, san pham va profile vat lieu kinh.
+// VI: Trang admin catalog quan ly mau kinh va profile render dinh san cho luong demo noi bo.
 export function AdminEntryPage() {
   const { t } = useTranslation();
   const { accessToken } = useAuth();
@@ -59,6 +59,7 @@ export function AdminEntryPage() {
   const [editingCategoryId, setEditingCategoryId] = useState<number | null>(null);
   const [statusMessage, setStatusMessage] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
 
   const selectedProduct = useMemo(
     () => products.find((product) => product.id === editingProductId) ?? null,
@@ -70,6 +71,7 @@ export function AdminEntryPage() {
       return;
     }
 
+    setIsLoading(true);
     try {
       const query = {
         search: search.trim() || undefined,
@@ -85,6 +87,8 @@ export function AdminEntryPage() {
       // VI: Hien thong bao ngan gon, log ngu canh an toan va khong in token.
       logSafeUiError('AdminEntryPage', 'loadCatalog', 'Failed to load glass catalog', error);
       setStatusMessage(t('catalog.messages.loadFailed'));
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -114,7 +118,7 @@ export function AdminEntryPage() {
     setStatusMessage('');
 
     try {
-      const payload = normalizeProductPayload(productForm);
+      const payload = normalizeProductPayload(productForm, editingProductId !== null);
 
       if (editingProductId) {
         await updateAdminGlassProduct(accessToken, editingProductId, payload);
@@ -281,7 +285,13 @@ export function AdminEntryPage() {
             ))}
           </div>
 
-          {products.length === 0 ? (
+          {isLoading ? (
+            <ShellCard>
+              <p className="text-sm font-semibold text-neutral-700">{t('catalog.messages.loading')}</p>
+            </ShellCard>
+          ) : null}
+
+          {!isLoading && products.length === 0 ? (
             <ShellCard>
               <p className="text-sm font-semibold text-neutral-700">{t('catalog.emptyProducts')}</p>
             </ShellCard>
@@ -315,15 +325,20 @@ export function AdminEntryPage() {
   );
 }
 
-function normalizeProductPayload(productForm: GlassProductPayload): GlassProductPayload {
-  // VI: categoryId null nghia la xoa danh muc; undefined moi la khong gui thay doi.
+function normalizeProductPayload(productForm: GlassProductPayload, isEditing: boolean): GlassProductPayload {
+  // VI: Khi sua, chuoi URL rong gui null de xoa asset; khi tao, bo trong de backend luu null mac dinh.
   const payload: GlassProductPayload = {
     ...productForm,
     categoryId: productForm.categoryId ?? null,
     description: productForm.description?.trim() || undefined,
-    previewImageUrl: productForm.previewImageUrl?.trim() || undefined,
-    textureImageUrl: productForm.textureImageUrl?.trim() || undefined,
+    previewImageUrl: normalizeMediaUrlField(productForm.previewImageUrl, isEditing),
+    textureImageUrl: normalizeMediaUrlField(productForm.textureImageUrl, isEditing),
   };
 
   return payload;
+}
+
+function normalizeMediaUrlField(value: string | null | undefined, isEditing: boolean): string | null | undefined {
+  const trimmedValue = typeof value === 'string' ? value.trim() : '';
+  return trimmedValue || (isEditing ? null : undefined);
 }

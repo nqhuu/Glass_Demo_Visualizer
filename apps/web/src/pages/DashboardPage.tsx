@@ -1,10 +1,12 @@
+import { ArrowRight, FolderKanban, Images, PanelsTopLeft, ShieldCheck } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../auth/use-auth';
 import { PageHeader } from '../components/PageHeader';
 import { ShellCard } from '../components/ShellCard';
 
-// VI: Dashboard Sprint 2 la shell tong quan, chua lay du lieu du an that tu backend.
+// VI: Dashboard huong dan luong demo noi bo bang cac thao tac that, khong hien thi so lieu gia.
 export function DashboardPage() {
   const { t } = useTranslation();
   const { user } = useAuth();
@@ -23,35 +25,50 @@ export function DashboardPage() {
         }
       />
 
-      <div className="grid gap-4 sm:grid-cols-3">
-        <MetricCard label={t('dashboard.metrics.projects')} value={t('dashboard.metrics.projectsValue')} />
-        <MetricCard label={t('dashboard.metrics.images')} value={t('dashboard.metrics.imagesValue')} />
-        <MetricCard label={t('dashboard.metrics.exports')} value={t('dashboard.metrics.exportsValue')} />
-      </div>
-
       <div className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
         <ShellCard>
-          <div className="flex items-center justify-between gap-4">
-            <div>
-              <h3 className="text-lg font-semibold text-neutral-950">{t('dashboard.recentProjectsTitle')}</h3>
-              <p className="mt-1 text-sm text-neutral-600">{t('dashboard.recentProjectsDescription')}</p>
+          <h3 className="text-lg font-semibold text-neutral-950">{t('dashboard.actionsTitle')}</h3>
+          <p className="mt-1 text-sm text-neutral-600">{t('dashboard.actionsDescription')}</p>
+          <div className="mt-5 grid gap-3 sm:grid-cols-2">
+            <ActionLink
+              icon={FolderKanban}
+              title={t('dashboard.actionProjectsTitle')}
+              description={t('dashboard.actionProjectsDescription')}
+              to="/app/projects"
+            />
+            <ActionLink
+              icon={Images}
+              title={t('dashboard.actionUploadTitle')}
+              description={t('dashboard.actionUploadDescription')}
+              to="/app/projects"
+            />
+            {isAdmin ? (
+              <ActionLink
+                icon={PanelsTopLeft}
+                title={t('dashboard.actionCatalogTitle')}
+                description={t('dashboard.actionCatalogDescription')}
+                to="/app/admin"
+              />
+            ) : null}
+            <div className="flex min-h-28 flex-col justify-between rounded-md border border-neutral-200 bg-stone-50 p-4">
+              <ShieldCheck className="text-brand-red" size={21} />
+              <div>
+                <p className="text-sm font-semibold text-neutral-950">{t('dashboard.watermarkTitle')}</p>
+                <p className="mt-1 text-xs leading-5 text-neutral-600">{t('dashboard.watermarkDescription')}</p>
+              </div>
             </div>
-            <Link className="rounded-md border border-neutral-300 px-3 py-2 text-sm font-semibold text-neutral-800" to="/app/projects">
-              {t('dashboard.viewProjects')}
-            </Link>
-          </div>
-          <div className="mt-5 grid gap-3 md:grid-cols-2">
-            <ProjectPreview title={t('dashboard.sampleProjectOne')} meta={t('dashboard.sampleProjectOneMeta')} />
-            <ProjectPreview title={t('dashboard.sampleProjectTwo')} meta={t('dashboard.sampleProjectTwoMeta')} />
           </div>
         </ShellCard>
 
         <ShellCard>
-          <h3 className="text-lg font-semibold text-neutral-950">{t('dashboard.nextStepsTitle')}</h3>
+          <h3 className="text-lg font-semibold text-neutral-950">{t('dashboard.workflowTitle')}</h3>
+          <p className="mt-1 text-sm text-neutral-600">{t('dashboard.workflowDescription')}</p>
           <div className="mt-4 space-y-3">
-            <StepItem text={t('dashboard.nextStepProjects')} />
-            {isAdmin ? <StepItem text={t('dashboard.nextStepCatalog')} /> : null}
-            <StepItem text={t('dashboard.nextStepEditor')} />
+            <StepItem step="1" text={t('dashboard.workflowProject')} />
+            <StepItem step="2" text={t('dashboard.workflowImage')} />
+            <StepItem step="3" text={t('dashboard.workflowRegion')} />
+            <StepItem step="4" text={t('dashboard.workflowGlass')} />
+            <StepItem step="5" text={t('dashboard.workflowExport')} />
           </div>
         </ShellCard>
       </div>
@@ -59,28 +76,25 @@ export function DashboardPage() {
   );
 }
 
-function MetricCard({ label, value }: { label: string; value: string }) {
+function ActionLink({ icon: Icon, title, description, to }: { icon: LucideIcon; title: string; description: string; to: string }) {
   return (
-    <ShellCard>
-      <p className="text-sm text-neutral-600">{label}</p>
-      <p className="mt-2 text-2xl font-semibold text-neutral-950">{value}</p>
-    </ShellCard>
+    <Link className="group flex min-h-28 flex-col justify-between rounded-md border border-neutral-200 p-4 transition hover:border-red-200 hover:bg-red-50/50" to={to}>
+      <div className="flex items-center justify-between">
+        <Icon className="text-brand-red" size={21} />
+        <ArrowRight className="text-neutral-400 transition group-hover:translate-x-0.5 group-hover:text-brand-red" size={17} />
+      </div>
+      <div>
+        <p className="text-sm font-semibold text-neutral-950">{title}</p>
+        <p className="mt-1 text-xs leading-5 text-neutral-600">{description}</p>
+      </div>
+    </Link>
   );
 }
 
-function ProjectPreview({ title, meta }: { title: string; meta: string }) {
+function StepItem({ step, text }: { step: string; text: string }) {
   return (
-    <div className="rounded-md bg-stone-100 p-4">
-      <p className="font-semibold text-neutral-950">{title}</p>
-      <p className="mt-1 text-sm text-neutral-600">{meta}</p>
-    </div>
-  );
-}
-
-function StepItem({ text }: { text: string }) {
-  return (
-    <div className="flex gap-3 rounded-md bg-stone-100 p-3 text-sm text-neutral-700">
-      <span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-brand-red" />
+    <div className="flex items-center gap-3 rounded-md bg-stone-100 p-3 text-sm text-neutral-700">
+      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-brand-red text-xs font-semibold text-white">{step}</span>
       <span>{text}</span>
     </div>
   );
