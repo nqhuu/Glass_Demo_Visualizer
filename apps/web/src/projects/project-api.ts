@@ -9,6 +9,7 @@ import type {
   ProjectPayload,
   ProjectQuery,
   UpdateGlassRegionPayload,
+  UpdateRegionRenderPresetPayload,
 } from './project.types';
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:3000/api';
@@ -73,7 +74,7 @@ function toProjectQuery(query: ProjectQuery): string {
     params.set('search', query.search);
   }
 
-  if (query.status && query.status !== 'all') {
+  if (query.status && query.status !== 'all' && query.status !== 'current') {
     params.set('status', query.status);
   }
 
@@ -111,7 +112,13 @@ export function updateProject(accessToken: string, projectId: number, payload: P
 }
 
 export function archiveProject(accessToken: string, projectId: number): Promise<Project> {
-  return projectRequest<Project>(`/projects/${projectId}`, accessToken, {
+  return projectRequest<Project>(`/projects/${projectId}/archive`, accessToken, {
+    method: 'PATCH',
+  });
+}
+
+export function deleteProject(accessToken: string, projectId: number): Promise<{ success: true }> {
+  return projectRequest<{ success: true }>(`/projects/${projectId}`, accessToken, {
     method: 'DELETE',
   });
 }
@@ -238,6 +245,19 @@ export function assignGlassToRegion(accessToken: string, projectId: number, imag
 export function removeGlassFromRegion(accessToken: string, projectId: number, imageId: number, regionId: number): Promise<GlassRegion> {
   return projectRequest<GlassRegion>(`/projects/${projectId}/images/${imageId}/regions/${regionId}/glass`, accessToken, {
     method: 'DELETE',
+  });
+}
+
+export function updateRegionRenderPreset(
+  accessToken: string,
+  projectId: number,
+  imageId: number,
+  regionId: number,
+  payload: UpdateRegionRenderPresetPayload,
+): Promise<GlassRegion> {
+  return projectRequest<GlassRegion>(`/projects/${projectId}/images/${imageId}/regions/${regionId}/render-preset`, accessToken, {
+    method: 'PATCH',
+    body: JSON.stringify(payload),
   });
 }
 

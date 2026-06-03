@@ -27,10 +27,10 @@ import { useTranslation } from 'react-i18next';
 import { Link, useParams } from 'react-router-dom';
 import { useAuth } from '../auth/use-auth';
 import { GlassPreview } from '../catalog/GlassPreview';
-import { listActiveGlassProducts } from '../catalog/glass-catalog-api';
-import type { GlassProduct } from '../catalog/glass-catalog.types';
+import { listActiveGlassProducts, listActiveGlassRenderPresets } from '../catalog/glass-catalog-api';
+import type { GlassProduct, GlassRenderPreset } from '../catalog/glass-catalog.types';
 import { GlassMaterialPreviewLayer } from '../editor/GlassMaterialPreviewLayer';
-import { assignGlassToRegion, createGlassRegion, deleteGlassRegion, downloadProjectExport, duplicateGlassRegion, exportProjectImage, getProject, listGlassRegions, listProjectImages, removeGlassFromRegion, updateGlassRegion } from '../projects/project-api';
+import { assignGlassToRegion, createGlassRegion, deleteGlassRegion, downloadProjectExport, duplicateGlassRegion, exportProjectImage, getProject, listGlassRegions, listProjectImages, removeGlassFromRegion, updateGlassRegion, updateRegionRenderPreset } from '../projects/project-api';
 import type { GlassRegion, GlassRegionBoundaryType, NormalizedPoint, Project, ProjectExport, ProjectImage } from '../projects/project.types';
 import { clampPoint, draftOverlapsRegions, generatePreviewPanes, pointsToSvg } from '../projects/region-geometry';
 import { type ProjectImageLoadStatus, useProjectImageSource } from '../projects/use-project-image-source';
@@ -86,6 +86,7 @@ export function EditorEntryPage() {
   const [regions, setRegions] = useState<GlassRegion[]>([]);
   const [regionLoadStatus, setRegionLoadStatus] = useState<RegionLoadStatus>('idle');
   const [glassProducts, setGlassProducts] = useState<GlassProduct[]>([]);
+  const [renderPresets, setRenderPresets] = useState<GlassRenderPreset[]>([]);
   const [glassLoadStatus, setGlassLoadStatus] = useState<GlassLoadStatus>('idle');
   const [selectedGlassId, setSelectedGlassId] = useState<number | null>(null);
   const [assigningGlassId, setAssigningGlassId] = useState<number | null>(null);
@@ -137,12 +138,15 @@ export function EditorEntryPage() {
       setGlassLoadStatus('loading');
       setGlassMessageKey(null);
       const productResults = await listActiveGlassProducts();
+      const presetResults = await listActiveGlassRenderPresets();
       setGlassProducts(productResults);
+      setRenderPresets(presetResults);
       setSelectedGlassId((current) => (current && productResults.some((product) => product.id === current) ? current : null));
       setGlassLoadStatus('loaded');
     } catch (error) {
       logEditorError('loadGlassProducts', error, { projectId: numericProjectId, imageId: numericImageId });
       setGlassProducts([]);
+      setRenderPresets([]);
       setSelectedGlassId(null);
       setGlassLoadStatus('error');
       setGlassMessageKey('editorEntry.glass.loadFailed');
@@ -448,6 +452,25 @@ export function EditorEntryPage() {
     }
   };
 
+  const changeSelectedRenderPreset = async (renderPresetId: number | null) => {
+    if (!accessToken || !selectedRegion) {
+      return;
+    }
+
+    try {
+      setSaveStatus('saving');
+      const updatedRegion = await updateRegionRenderPreset(accessToken, numericProjectId, numericImageId, selectedRegion.id, { renderPresetId });
+      setRegions((current) => current.map((region) => (region.id === updatedRegion.id ? updatedRegion : region)));
+      setSelectedRegionId(updatedRegion.id);
+      setSaveStatus('saved');
+      setRegionMessageKey('editorEntry.renderPreset.updated');
+    } catch (error) {
+      logEditorError('updateRegionRenderPreset', error, { projectId: numericProjectId, imageId: numericImageId });
+      setSaveStatus('error');
+      setRegionMessageKey('editorEntry.renderPreset.updateFailed');
+    }
+  };
+
   if (isLoading) {
     return <EditorStateCard message={t('editorEntry.messages.loading')} />;
   }
@@ -520,6 +543,7 @@ export function EditorEntryPage() {
             draftOverlaps={draftOverlaps}
             draftTooSmall={draftTooSmall}
             products={glassProducts}
+            renderPresets={renderPresets}
             selectedGlassId={selectedGlassId}
             selectedRegion={selectedRegion}
             status={glassLoadStatus}
@@ -531,6 +555,7 @@ export function EditorEntryPage() {
             onSelectGlass={setSelectedGlassId}
             onAssignGlass={assignSelectedGlass}
             onRemoveGlass={removeSelectedGlass}
+            onRenderPresetChange={changeSelectedRenderPreset}
             onSaveDraft={saveDraft}
             onCancelDraft={cancelDraft}
             onEditDraftChange={setEditDraft}
@@ -553,6 +578,7 @@ export function EditorEntryPage() {
           draftOverlaps={draftOverlaps}
           draftTooSmall={draftTooSmall}
           products={glassProducts}
+          renderPresets={renderPresets}
           selectedGlassId={selectedGlassId}
           selectedRegion={selectedRegion}
           status={glassLoadStatus}
@@ -564,6 +590,7 @@ export function EditorEntryPage() {
           onSelectGlass={setSelectedGlassId}
           onAssignGlass={assignSelectedGlass}
           onRemoveGlass={removeSelectedGlass}
+          onRenderPresetChange={changeSelectedRenderPreset}
           onSaveDraft={saveDraft}
           onCancelDraft={cancelDraft}
           onEditDraftChange={setEditDraft}
@@ -1190,6 +1217,7 @@ function InspectorPanel(props: InspectorProps) {
 
 type GlassSelectorProps = {
   products: GlassProduct[];
+  renderPresets: GlassRenderPreset[];
   selectedGlassId: number | null;
   selectedRegion: GlassRegion | null;
   status: GlassLoadStatus;
@@ -1199,6 +1227,7 @@ type GlassSelectorProps = {
   onSelectGlass: (productId: number | null) => void;
   onAssignGlass: (productId: number) => void;
   onRemoveGlass: () => void;
+  onRenderPresetChange: (renderPresetId: number | null) => void;
 };
 
 function MobileInspector(props: InspectorProps) {
@@ -1235,6 +1264,8 @@ function SelectedRegionPanel({
   onDuplicateRegion,
   onDeleteRegion,
   onRemoveGlass,
+  renderPresets,
+  onRenderPresetChange,
   assigningGlassId,
   compact = false,
 }: InspectorProps & { compact?: boolean }) {
@@ -1306,6 +1337,43 @@ function SelectedRegionPanel({
           ) : (
             <p className="mt-2 text-xs text-neutral-600">{t('editorEntry.glass.unassignedHelp')}</p>
           )}
+        </div>
+        <div className="rounded-md border border-neutral-200 bg-white px-3 py-3 text-sm">
+          <label className="block font-semibold text-neutral-900">
+            {t('editorEntry.renderPreset.title')}
+            <select
+              className="mt-2 min-h-10 w-full rounded-md border border-neutral-300 bg-white px-3 py-2 text-sm outline-none focus:border-brand-red"
+              value={selectedRegion.renderPresetId ?? ''}
+              onChange={(event) => onRenderPresetChange(event.target.value ? Number(event.target.value) : null)}
+              disabled={!assignedProduct || saveStatus === 'saving'}
+            >
+              <option value="">{t('editorEntry.renderPreset.none')}</option>
+              {renderPresets.map((preset) => (
+                <option key={preset.id} value={preset.id}>
+                  {preset.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-neutral-600">
+            <MetricBox labelKey="editorEntry.renderPreset.tint" value={formatAppliedPercent(selectedRegion.appliedTintPercent)} />
+            <MetricBox labelKey="editorEntry.renderPreset.reflectivity" value={formatAppliedPercent(selectedRegion.appliedReflectivityPercent)} />
+            <MetricBox labelKey="editorEntry.renderPreset.transmission" value={formatAppliedPercent(selectedRegion.appliedTransmissionPercent)} />
+            <MetricBox labelKey="editorEntry.renderPreset.shadow" value={formatAppliedPercent(selectedRegion.appliedShadowPercent)} />
+          </div>
+          {!assignedProduct ? <p className="mt-2 text-xs text-neutral-500">{t('editorEntry.renderPreset.assignGlassFirst')}</p> : null}
+        </div>
+        <div className="rounded-md border border-dashed border-neutral-300 bg-neutral-50 px-3 py-3 text-sm text-neutral-700">
+          <p className="font-semibold text-neutral-900">{t('editorEntry.polygon.title')}</p>
+          <p className="mt-1 text-xs leading-5">{t('editorEntry.polygon.deferred')}</p>
+          <div className="mt-2 grid grid-cols-2 gap-2">
+            <button className="min-h-9 rounded-md border border-neutral-200 bg-white px-2 text-xs font-semibold text-neutral-400" type="button" disabled>
+              {t('editorEntry.polygon.addPoint')}
+            </button>
+            <button className="min-h-9 rounded-md border border-neutral-200 bg-white px-2 text-xs font-semibold text-neutral-400" type="button" disabled>
+              {t('editorEntry.polygon.removePoint')}
+            </button>
+          </div>
         </div>
         {editOverlaps ? <p className="rounded-md border border-red-100 bg-red-50 px-3 py-2 text-sm font-semibold text-red-800">{t('editorEntry.regions.overlapWarning')}</p> : null}
         {editTooSmall ? <p className="rounded-md border border-amber-100 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-800">{t('editorEntry.regions.tooSmall')}</p> : null}
@@ -1412,6 +1480,10 @@ function MetricBox({ labelKey, value }: { labelKey: string; value: string }) {
       <p className="mt-1 text-sm font-semibold text-neutral-950">{value}</p>
     </div>
   );
+}
+
+function formatAppliedPercent(value: number | null | undefined): string {
+  return value === null || value === undefined ? '-' : `${value}%`;
 }
 
 function GlassSelectorPanel({

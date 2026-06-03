@@ -1,5 +1,7 @@
 import { Column, CreateDateColumn, Entity, JoinColumn, ManyToOne, PrimaryGeneratedColumn, UpdateDateColumn } from 'typeorm';
 import { GlassCategory } from './glass-category.entity';
+import { GlassMaterialTypeEntity } from './glass-material-type.entity';
+import { GlassRenderPreset } from './glass-render-preset.entity';
 import { GlassMaterialType } from './enums/glass-material-type.enum';
 import { GlassRealismPreset } from './enums/glass-realism-preset.enum';
 
@@ -28,6 +30,13 @@ export class GlassProduct {
   @Column({ name: 'material_type', type: 'enum', enum: GlassMaterialType, default: GlassMaterialType.Clear })
   materialType!: GlassMaterialType;
 
+  @Column({ name: 'material_type_id', type: 'int', nullable: true })
+  materialTypeId!: number | null;
+
+  @ManyToOne(() => GlassMaterialTypeEntity, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'material_type_id' })
+  materialTypeConfig!: GlassMaterialTypeEntity | null;
+
   @Column({ name: 'base_color', length: 7, default: '#dbeafe' })
   baseColor!: string;
 
@@ -46,6 +55,13 @@ export class GlassProduct {
   @Column({ name: 'realism_preset', type: 'enum', enum: GlassRealismPreset, default: GlassRealismPreset.Standard })
   realismPreset!: GlassRealismPreset;
 
+  @Column({ name: 'render_preset_id', type: 'int', nullable: true })
+  renderPresetId!: number | null;
+
+  @ManyToOne(() => GlassRenderPreset, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'render_preset_id' })
+  renderPreset!: GlassRenderPreset | null;
+
   @Column({ name: 'preview_image_url', type: 'varchar', length: 500, nullable: true })
   previewImageUrl!: string | null;
 
@@ -54,6 +70,9 @@ export class GlassProduct {
 
   @Column({ name: 'is_active', default: true })
   isActive!: boolean;
+
+  @Column({ name: 'is_archived', default: false })
+  isArchived!: boolean;
 
   @Column({ name: 'sort_order', default: 0 })
   sortOrder!: number;

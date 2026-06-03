@@ -1,5 +1,5 @@
 import type { LucideIcon } from 'lucide-react';
-import { FolderKanban, Gauge, PanelsTopLeft, Settings } from 'lucide-react';
+import { FolderKanban, Gauge, History, PanelsTopLeft, Settings } from 'lucide-react';
 import type { UserRole } from '../auth/auth.types';
 
 // VI: Khai bao route app shell de desktop sidebar va mobile bottom nav dung chung mot nguon.
@@ -41,6 +41,14 @@ export const appNavItems: AppNavItem[] = [
     shortLabelKey: 'navigation.settingsShort',
     descriptionKey: 'navigation.settingsDescription',
     icon: Settings,
+    adminOnly: true,
+  },
+  {
+    path: '/app/audit-logs',
+    labelKey: 'navigation.audit',
+    shortLabelKey: 'navigation.auditShort',
+    descriptionKey: 'navigation.auditDescription',
+    icon: History,
     adminOnly: true,
   },
 ];

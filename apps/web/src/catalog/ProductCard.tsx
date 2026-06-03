@@ -1,4 +1,4 @@
-import { Edit2, Power, Trash2 } from 'lucide-react';
+import { Archive, Edit2, Power, RotateCcw } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ShellCard } from '../components/ShellCard';
@@ -10,14 +10,17 @@ export function ProductCard({
   product,
   onEdit,
   onToggleActive,
-  onDelete,
+  onArchive,
+  onRestore,
 }: {
   product: GlassProduct;
   onEdit: () => void;
   onToggleActive: () => void;
-  onDelete: () => void;
+  onArchive: () => void;
+  onRestore: () => void;
 }) {
   const { t } = useTranslation();
+  const statusKey = product.isArchived ? 'archived' : product.isActive ? 'active' : 'inactive';
 
   return (
     <ShellCard>
@@ -26,8 +29,8 @@ export function ProductCard({
           <p className="truncate text-lg font-semibold text-neutral-950">{product.name}</p>
           <p className="text-sm font-semibold text-brand-red">{product.code}</p>
         </div>
-        <span className={`rounded-md px-2 py-1 text-xs font-semibold ${product.isActive ? 'bg-emerald-50 text-emerald-700' : 'bg-neutral-100 text-neutral-500'}`}>
-          {t(product.isActive ? 'catalog.status.active' : 'catalog.status.inactive')}
+        <span className={`rounded-md px-2 py-1 text-xs font-semibold ${product.isArchived ? 'bg-amber-50 text-amber-700' : product.isActive ? 'bg-emerald-50 text-emerald-700' : 'bg-neutral-100 text-neutral-500'}`}>
+          {t(`catalog.status.${statusKey}`)}
         </span>
       </div>
       <GlassPreview product={product} />
@@ -39,8 +42,14 @@ export function ProductCard({
       </div>
       <div className="mt-4 flex flex-wrap gap-2">
         <ActionButton icon={<Edit2 size={16} />} label={t('catalog.actions.edit')} onClick={onEdit} />
-        <ActionButton icon={<Power size={16} />} label={t(product.isActive ? 'catalog.actions.deactivate' : 'catalog.actions.activate')} onClick={onToggleActive} />
-        <ActionButton icon={<Trash2 size={16} />} label={t('catalog.actions.delete')} onClick={onDelete} danger />
+        {product.isArchived ? (
+          <ActionButton icon={<RotateCcw size={16} />} label={t('catalog.actions.restore')} onClick={onRestore} />
+        ) : (
+          <>
+            <ActionButton icon={<Power size={16} />} label={t(product.isActive ? 'catalog.actions.deactivate' : 'catalog.actions.reactivate')} onClick={onToggleActive} />
+            <ActionButton icon={<Archive size={16} />} label={t('catalog.actions.archive')} onClick={onArchive} danger />
+          </>
+        )}
       </div>
     </ShellCard>
   );

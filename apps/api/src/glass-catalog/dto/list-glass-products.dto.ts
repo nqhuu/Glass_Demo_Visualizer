@@ -15,6 +15,11 @@ export class ListGlassProductsDto {
   isActive?: boolean;
 
   @IsOptional()
+  @Transform(({ value }) => value === true || value === 'true')
+  @IsBoolean()
+  isArchived?: boolean;
+
+  @IsOptional()
   @IsString()
   @Length(1, 120)
   search?: string;

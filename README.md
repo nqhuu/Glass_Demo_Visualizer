@@ -18,6 +18,7 @@ The internal MVP includes:
 - grid panes inside a region
 - realistic glass material preview
 - export with watermark
+- admin-only action audit history
 
 ## Important product rule
 
@@ -126,6 +127,8 @@ Relevant auth endpoints:
 
 With `SEED_DEMO_DATA_ENABLED=true`, startup also creates active, procedural demo glass samples if their unique codes do not already exist. It does not publish project photos or require public texture files.
 
+Admin catalog lifecycle separates active, inactive, and archived items. Active products are available to the editor, inactive products are temporarily disabled, and archived products/categories stay restorable for admin without breaking existing region/export history.
+
 Admin catalog endpoints:
 
 - `GET /api/admin/glass-categories`
@@ -136,11 +139,24 @@ Admin catalog endpoints:
 - `POST /api/admin/glass-products`
 - `PATCH /api/admin/glass-products/:id`
 - `DELETE /api/admin/glass-products/:id`
+- `GET /api/admin/glass-material-types`
+- `POST /api/admin/glass-material-types`
+- `PATCH /api/admin/glass-material-types/:id`
+- `DELETE /api/admin/glass-material-types/:id`
+- `GET /api/admin/glass-render-presets`
+- `POST /api/admin/glass-render-presets`
+- `PATCH /api/admin/glass-render-presets/:id`
+- `DELETE /api/admin/glass-render-presets/:id`
+- `GET /api/admin/audit-logs?limit=50`
 
 Active catalog endpoints used by the editor:
 
 - `GET /api/glass-categories`
 - `GET /api/glass-products`
+- `GET /api/glass-material-types`
+- `GET /api/glass-render-presets`
+
+Render presets are selected primarily per glass region in the editor. Existing products/regions without managed material type or region render preset ids continue to fall back to their legacy material enum and product render values.
 
 ## Local media security
 
@@ -154,10 +170,18 @@ Active catalog endpoints used by the editor:
 2. Open **Projects**, create a consultation project, and upload a JPG, PNG, or WEBP project photo.
 3. Open the uploaded image in the editor; protected project media is fetched with the authenticated API flow.
 4. Draw one or more non-overlapping regions, set rows and columns, and save the generated panes.
-5. Assign active predefined glass products and check the restrained material preview.
+5. Assign active predefined glass products, optionally choose a region render preset/context, and check the restrained material preview.
 6. Select **Export demo**; every export includes the required watermark.
 7. Return to project detail to view and download export history.
-8. Sign in as admin to manage catalog products and optional safe preview/texture URLs.
+8. Sign in as admin to manage catalog products, material types, render presets, and optional safe preview/texture URLs.
+9. As admin, open **Audit history** to review safe action records for the demo flow.
+
+## Audit history
+
+- Sprint 13 records key authentication, project/image, region/glass, export, and admin catalog actions.
+- Audit records contain actor id/role, entity ids, status, timestamp and a generic safe message only.
+- Passwords, tokens, reset values, request bodies, material payloads, storage keys and filesystem paths are never audit payloads.
+- Audit recording is best-effort: a failed audit write is sanitized in server logs and does not undo the user action.
 
 Use [DEMO_CHECKLIST.md](DEMO_CHECKLIST.md) when validating a release candidate.
 

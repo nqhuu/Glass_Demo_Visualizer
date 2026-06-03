@@ -8,6 +8,7 @@ import { AuthModule } from './auth/auth.module';
 import { createTypeOrmOptions } from './config/typeorm.config';
 import { GlassCatalogModule } from './glass-catalog/glass-catalog.module';
 import { ProjectsModule } from './projects/projects.module';
+import { AuditLogModule } from './audit/audit-log.module';
 import { UsersModule } from './users/users.module';
 
 function readPositiveInteger(value: string | undefined, fallback: number): number {
@@ -36,6 +37,7 @@ function readPositiveInteger(value: string | undefined, fallback: number): numbe
     TypeOrmModule.forRootAsync({
       useFactory: createTypeOrmOptions,
     }),
+    AuditLogModule,
     UsersModule,
     AuthModule,
     GlassCatalogModule,

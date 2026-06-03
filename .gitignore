@@ -6,4 +6,5 @@ coverage/
 .DS_Store
 npm-debug.log*
 uploads/
+apps/api/exports/
 .codex-skill-install-openai-skills/

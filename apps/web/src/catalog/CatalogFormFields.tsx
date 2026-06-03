@@ -58,13 +58,24 @@ export function SelectField({ label, value, onChange, children }: { label: strin
 }
 
 export function RangeField({ label, value, onChange }: { label: string; value: number; onChange: (value: number) => void }) {
+  const clampedValue = Math.min(1, Math.max(0, value));
+
   return (
     <label className="block">
       <span className="flex items-center justify-between gap-3 text-sm font-semibold text-neutral-800">
         {label}
-        <span>{Math.round(value * 100)}%</span>
+        <span>{Math.round(clampedValue * 100)}%</span>
       </span>
-      <input className="mt-2 w-full accent-red-700" max="1" min="0" step="0.05" type="range" value={value} onChange={(event) => onChange(Number(event.target.value))} />
+      <input
+        className="mt-2 w-full accent-red-700"
+        max="1"
+        min="0"
+        // VI: Slider nay chi cho admin cau hinh profile vat lieu, cho phep dieu chinh chinh xac tung 1%.
+        step="0.01"
+        type="range"
+        value={clampedValue}
+        onChange={(event) => onChange(Math.min(1, Math.max(0, Number(event.target.value))))}
+      />
     </label>
   );
 }

@@ -1,22 +1,23 @@
+import { Type } from 'class-transformer';
 import { IsBoolean, IsInt, IsOptional, IsString, Length, Matches, Max, Min } from 'class-validator';
 
-// VI: DTO cap nhat danh muc cho phep sua tung phan cua danh muc kinh.
-export class UpdateGlassCategoryDto {
+// VI: DTO update material type de tung field optional, tranh phu thuoc mapped-types ngoai package.
+export class UpdateGlassMaterialTypeDto {
   @IsOptional()
   @IsString()
-  @Length(2, 120)
+  @Length(2, 160)
   name?: string;
 
   @IsOptional()
   @IsString()
-  @Length(2, 140)
-  @Matches(/^[a-z0-9]+(?:-[a-z0-9]+)*$/)
-  slug?: string;
+  @Length(2, 80)
+  @Matches(/^[a-z0-9][a-z0-9_-]*$/)
+  code?: string;
 
   @IsOptional()
   @IsString()
-  @Length(0, 500)
-  description?: string;
+  @Length(0, 800)
+  description?: string | null;
 
   @IsOptional()
   @IsBoolean()
@@ -27,6 +28,7 @@ export class UpdateGlassCategoryDto {
   isArchived?: boolean;
 
   @IsOptional()
+  @Type(() => Number)
   @IsInt()
   @Min(0)
   @Max(9999)

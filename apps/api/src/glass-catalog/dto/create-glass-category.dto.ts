@@ -21,6 +21,10 @@ export class CreateGlassCategoryDto {
   isActive?: boolean;
 
   @IsOptional()
+  @IsBoolean()
+  isArchived?: boolean;
+
+  @IsOptional()
   @IsInt()
   @Min(0)
   @Max(9999)

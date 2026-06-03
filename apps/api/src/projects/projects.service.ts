@@ -7,6 +7,7 @@ import { randomUUID } from 'node:crypto';
 import { DataSource, EntityManager, FindOptionsWhere, Like, Repository } from 'typeorm';
 import { JwtPayload } from '../auth/auth.types';
 import { GlassProduct } from '../glass-catalog/glass-product.entity';
+import { GlassRenderPreset } from '../glass-catalog/glass-render-preset.entity';
 import { UserRole } from '../users/user-role.enum';
 import { AssignGlassProductDto } from './dto/assign-glass-product.dto';
 import { CreateGlassRegionDto } from './dto/create-glass-region.dto';
@@ -14,6 +15,7 @@ import { CreateProjectImageDto } from './dto/create-project-image.dto';
 import { CreateProjectDto } from './dto/create-project.dto';
 import { ListProjectsDto } from './dto/list-projects.dto';
 import { UpdateGlassRegionDto } from './dto/update-glass-region.dto';
+import { UpdateRegionRenderPresetDto } from './dto/update-region-render-preset.dto';
 import { UpdateProjectImageDto } from './dto/update-project-image.dto';
 import { UpdateProjectDto } from './dto/update-project.dto';
 import { UploadProjectImageDto } from './dto/upload-project-image.dto';
@@ -30,6 +32,7 @@ import { ProjectExport } from './project-export.entity';
 import { ProjectImage } from './project-image.entity';
 import { Project } from './project.entity';
 import { UploadedProjectFile } from './uploaded-project-file.type';
+import { AuditLogService } from '../audit/audit-log.service';
 
 const DEFAULT_UPLOAD_MAX_BYTES = 10 * 1024 * 1024;
 
@@ -102,8 +105,11 @@ export class ProjectsService {
     private readonly exportsRepository: Repository<ProjectExport>,
     @InjectRepository(GlassProduct)
     private readonly glassProductsRepository: Repository<GlassProduct>,
+    @InjectRepository(GlassRenderPreset)
+    private readonly renderPresetsRepository: Repository<GlassRenderPreset>,
     private readonly dataSource: DataSource,
     private readonly configService: ConfigService,
+    private readonly auditLogService: AuditLogService,
   ) {}
 
   async listProjects(user: JwtPayload, query: ListProjectsDto): Promise<Project[]> {
@@ -139,7 +145,9 @@ export class ProjectsService {
         status: dto.status ?? ProjectStatus.Draft,
       });
 
-      return await this.projectsRepository.save(project);
+      const saved = await this.projectsRepository.save(project);
+      await this.recordProjectAction(user, 'project.create', 'project', saved.id, saved.id, null, 'Project created.');
+      return saved;
     } catch (error) {
       this.logAndThrow('createProject', 'Unable to create project.', error, { userId: user.sub });
     }
@@ -160,7 +168,9 @@ export class ProjectsService {
         status: dto.status ?? project.status,
       });
 
-      return await this.projectsRepository.save(project);
+      const saved = await this.projectsRepository.save(project);
+      await this.recordProjectAction(user, 'project.update', 'project', saved.id, saved.id, null, 'Project updated.');
+      return saved;
     } catch (error) {
       if (this.isExpectedAccessError(error)) {
         throw error;
@@ -173,12 +183,30 @@ export class ProjectsService {
     try {
       const project = await this.findAccessibleProject(user, projectId);
       project.status = ProjectStatus.Archived;
-      return await this.projectsRepository.save(project);
+      const saved = await this.projectsRepository.save(project);
+      await this.recordProjectAction(user, 'project.archive', 'project', saved.id, saved.id, null, 'Project archived.');
+      return saved;
     } catch (error) {
       if (this.isExpectedAccessError(error)) {
         throw error;
       }
       this.logAndThrow('archiveProject', 'Unable to archive project.', error, { userId: user.sub, projectId });
+    }
+  }
+
+  async deleteProject(user: JwtPayload, projectId: number): Promise<{ success: true }> {
+    try {
+      const project = await this.findAccessibleProject(user, projectId);
+      // VI: DELETE du an la archive mem trong MVP de giu nguyen anh, region, pane va export protected.
+      project.status = ProjectStatus.Archived;
+      await this.projectsRepository.save(project);
+      await this.recordProjectAction(user, 'project.delete', 'project', projectId, projectId, null, 'Project archived by delete action.');
+      return { success: true };
+    } catch (error) {
+      if (this.isExpectedAccessError(error)) {
+        throw error;
+      }
+      this.logAndThrow('deleteProject', 'Unable to delete project.', error, { userId: user.sub, projectId });
     }
   }
 
@@ -205,7 +233,9 @@ export class ProjectsService {
         ...this.normalizeImageInput(dto),
       });
 
-      return await this.imagesRepository.save(image);
+      const saved = await this.imagesRepository.save(image);
+      await this.recordProjectAction(user, 'project-image.create', 'project_image', saved.id, projectId, saved.id, 'Project image metadata created.');
+      return saved;
     } catch (error) {
       if (this.isExpectedAccessError(error)) {
         throw error;
@@ -256,7 +286,9 @@ export class ProjectsService {
         return created.id;
       });
 
-      return this.findProjectImage(projectId, imageId);
+      const saved = await this.findProjectImage(projectId, imageId);
+      await this.recordProjectAction(user, 'project-image.upload', 'project_image', saved.id, projectId, saved.id, 'Project image uploaded.');
+      return saved;
     } catch (error) {
       if (storedFilePath) {
         await this.removeStoredFile(storedFilePath);
@@ -304,7 +336,9 @@ export class ProjectsService {
       const image = await this.findProjectImage(projectId, imageId);
       Object.assign(image, this.normalizeImageInput(dto, image));
 
-      return await this.imagesRepository.save(image);
+      const saved = await this.imagesRepository.save(image);
+      await this.recordProjectAction(user, 'project-image.update', 'project_image', saved.id, projectId, saved.id, 'Project image metadata updated.');
+      return saved;
     } catch (error) {
       if (this.isExpectedAccessError(error)) {
         throw error;
@@ -318,6 +352,7 @@ export class ProjectsService {
       const image = await this.findAccessibleProjectImageWithStorageKey(user, projectId, imageId);
       await this.imagesRepository.remove(image);
       await this.removeProjectImageFiles(image);
+      await this.recordProjectAction(user, 'project-image.delete', 'project_image', imageId, projectId, imageId, 'Project image deleted.');
       return { deleted: true };
     } catch (error) {
       if (this.isExpectedAccessError(error)) {
@@ -332,7 +367,7 @@ export class ProjectsService {
       await this.findAccessibleProjectImage(user, projectId, imageId);
       return await this.regionsRepository.find({
         where: { projectId, projectImageId: imageId },
-        relations: { panes: true, glassProduct: { category: true } },
+        relations: { panes: true, renderPreset: true, glassProduct: { category: true, materialTypeConfig: true, renderPreset: true } },
         order: { sortOrder: 'ASC', createdAt: 'ASC', panes: { sortOrder: 'ASC' } },
       });
     } catch (error) {
@@ -369,13 +404,30 @@ export class ProjectsService {
           throw new NotFoundException('Glass region was not found.');
         }
 
-        // VI: Sprint 9 chi luu id san pham active; user khong duoc gui/sua cac thong so vat lieu.
+        // VI: Gan product khoi tao profile render o cap region; user khong duoc gui tuy bien vat lieu tu client.
         region.glassProductId = product.id;
         region.status = GlassRegionStatus.Assigned;
+        const selectedPreset = region.renderPresetId
+          ? await manager.findOne(GlassRenderPreset, { where: { id: region.renderPresetId, isActive: true, isArchived: false } })
+          : null;
+        const productPreset = product.renderPresetId
+          ? await manager.findOne(GlassRenderPreset, { where: { id: product.renderPresetId, isActive: true, isArchived: false } })
+          : null;
+
+        // VI: Neu preset da bi tat/archive, xoa tham chieu cu de region khong giu renderPresetId khong hop le.
+        const effectivePreset = selectedPreset ?? productPreset;
+        region.renderPresetId = effectivePreset?.id ?? null;
+        if (effectivePreset) {
+          this.applyRenderDefaultsFromPreset(region, effectivePreset);
+        } else {
+          this.applyRenderDefaultsFromProduct(region, product);
+        }
         await manager.save(GlassRegion, region);
       });
 
-      return await this.findRegion(projectId, imageId, regionId);
+      const saved = await this.findRegion(projectId, imageId, regionId);
+      await this.recordProjectAction(user, 'region.glass.assign', 'glass_region', regionId, projectId, imageId, 'Glass product assigned.');
+      return saved;
     } catch (error) {
       if (this.isExpectedAccessError(error) || error instanceof BadRequestException) {
         throw error;
@@ -403,12 +455,55 @@ export class ProjectsService {
         await manager.save(GlassRegion, region);
       });
 
-      return await this.findRegion(projectId, imageId, regionId);
+      const saved = await this.findRegion(projectId, imageId, regionId);
+      await this.recordProjectAction(user, 'region.glass.clear', 'glass_region', regionId, projectId, imageId, 'Glass product cleared.');
+      return saved;
     } catch (error) {
       if (this.isExpectedAccessError(error) || error instanceof BadRequestException) {
         throw error;
       }
       this.logAndThrow('clearRegionGlass', 'Unable to remove glass assignment.', error, { userId: user.sub, projectId, imageId, regionId });
+    }
+  }
+
+  async updateRegionRenderPreset(user: JwtPayload, projectId: number, imageId: number, regionId: number, dto: UpdateRegionRenderPresetDto): Promise<GlassRegion> {
+    try {
+      await this.findAccessibleProjectImage(user, projectId, imageId);
+      const renderPreset =
+        dto.renderPresetId === null || dto.renderPresetId === undefined
+          ? null
+          : await this.renderPresetsRepository.findOne({ where: { id: dto.renderPresetId, isActive: true, isArchived: false } });
+
+      if (dto.renderPresetId && !renderPreset) {
+        throw new NotFoundException('Glass render preset was not found.');
+      }
+
+      await this.dataSource.transaction(async (manager) => {
+        const region = await manager.findOne(GlassRegion, {
+          where: { id: regionId, projectId, projectImageId: imageId },
+        });
+
+        if (!region) {
+          throw new NotFoundException('Glass region was not found.');
+        }
+
+        // VI: Preset render la cau hinh theo ngu canh region; ap dung defaults allowlist, khong nhan slider tuy y tu user.
+        region.renderPresetId = renderPreset?.id ?? null;
+        region.appliedTintPercent = renderPreset?.defaultTintPercent ?? null;
+        region.appliedReflectivityPercent = renderPreset?.defaultReflectivityPercent ?? null;
+        region.appliedTransmissionPercent = renderPreset?.defaultTransmissionPercent ?? null;
+        region.appliedShadowPercent = renderPreset?.defaultShadowPercent ?? null;
+        await manager.save(GlassRegion, region);
+      });
+
+      const saved = await this.findRegion(projectId, imageId, regionId);
+      await this.recordProjectAction(user, 'region.render-preset.update', 'glass_region', regionId, projectId, imageId, 'Region render preset updated.');
+      return saved;
+    } catch (error) {
+      if (this.isExpectedAccessError(error)) {
+        throw error;
+      }
+      this.logAndThrow('updateRegionRenderPreset', 'Unable to update region render preset.', error, { userId: user.sub, projectId, imageId, regionId });
     }
   }
 
@@ -455,7 +550,7 @@ export class ProjectsService {
 
       const savedRegion = await this.regionsRepository.findOne({
         where: { id: savedRegionId, projectId, projectImageId: imageId },
-        relations: { panes: true, glassProduct: { category: true } },
+        relations: { panes: true, renderPreset: true, glassProduct: { category: true, materialTypeConfig: true, renderPreset: true } },
         order: { panes: { sortOrder: 'ASC' } },
       });
 
@@ -463,6 +558,7 @@ export class ProjectsService {
         throw new InternalServerErrorException('Unable to load saved glass region.');
       }
 
+      await this.recordProjectAction(user, 'region.create', 'glass_region', savedRegion.id, projectId, imageId, 'Glass region created.');
       return savedRegion;
     } catch (error) {
       if (this.isExpectedAccessError(error) || error instanceof BadRequestException) {
@@ -529,7 +625,9 @@ export class ProjectsService {
         return savedRegion.id;
       });
 
-      return await this.findRegion(projectId, imageId, savedRegionId);
+      const saved = await this.findRegion(projectId, imageId, savedRegionId);
+      await this.recordProjectAction(user, 'region.update', 'glass_region', saved.id, projectId, imageId, 'Glass region updated.');
+      return saved;
     } catch (error) {
       if (this.isExpectedAccessError(error) || error instanceof BadRequestException) {
         throw error;
@@ -562,6 +660,11 @@ export class ProjectsService {
           boundaryType: original.boundaryType,
           boundaryPointsJson: candidatePoints,
           glassProductId: original.glassProductId,
+          renderPresetId: original.renderPresetId,
+          appliedTintPercent: original.appliedTintPercent,
+          appliedReflectivityPercent: original.appliedReflectivityPercent,
+          appliedTransmissionPercent: original.appliedTransmissionPercent,
+          appliedShadowPercent: original.appliedShadowPercent,
           gridMode: original.gridMode,
           rows: original.rows,
           columns: original.columns,
@@ -583,7 +686,9 @@ export class ProjectsService {
         return savedRegion.id;
       });
 
-      return await this.findRegion(projectId, imageId, savedRegionId);
+      const saved = await this.findRegion(projectId, imageId, savedRegionId);
+      await this.recordProjectAction(user, 'region.duplicate', 'glass_region', saved.id, projectId, imageId, 'Glass region duplicated.');
+      return saved;
     } catch (error) {
       if (this.isExpectedAccessError(error) || error instanceof BadRequestException) {
         throw error;
@@ -603,6 +708,7 @@ export class ProjectsService {
         await manager.delete(GlassRegion, { id: regionId, projectId, projectImageId: imageId });
       });
 
+      await this.recordProjectAction(user, 'region.delete', 'glass_region', regionId, projectId, imageId, 'Glass region deleted.');
       return { deleted: true };
     } catch (error) {
       if (this.isExpectedAccessError(error)) {
@@ -670,6 +776,7 @@ export class ProjectsService {
 
       // VI: Controller ap dung throttler MVP; renderer nay van bat buoc watermark va luu file ngoai public upload.
       exportRecordCommitted = true;
+      await this.recordProjectAction(user, 'export.create', 'project_export', saved.id, projectId, imageId, 'Watermarked export created.');
       return this.toExportResponse(saved);
     } catch (error) {
       if (exportFilePath && !exportRecordCommitted) {
@@ -715,6 +822,7 @@ export class ProjectsService {
       await this.findAccessibleProject(user, projectId);
       const exportRecord = await this.findProjectExport(projectId, exportId);
       const buffer = await readFile(this.resolveExportStorageKey(exportRecord.storageKey));
+      await this.recordProjectAction(user, 'export.download', 'project_export', exportRecord.id, projectId, exportRecord.projectImageId, 'Export downloaded.');
       return {
         fileName: exportRecord.fileName,
         contentType: exportRecord.format === 'svg' ? 'image/svg+xml' : 'application/octet-stream',
@@ -731,7 +839,7 @@ export class ProjectsService {
   private async loadAssignedRegionsForExport(projectId: number, imageId: number): Promise<GlassRegion[]> {
     return this.regionsRepository.find({
       where: { projectId, projectImageId: imageId, status: GlassRegionStatus.Assigned },
-      relations: { panes: true, glassProduct: { category: true } },
+      relations: { panes: true, renderPreset: true, glassProduct: { category: true, materialTypeConfig: true, renderPreset: true } },
       order: { sortOrder: 'ASC', createdAt: 'ASC', panes: { sortOrder: 'ASC' } },
     }).then((regions) => regions.filter((region) => region.glassProduct && region.panes.length > 0));
   }
@@ -778,8 +886,9 @@ export class ProjectsService {
         const gradientId = `glass-r${region.id}-p${pane.id}`;
         // VI: Diem normalized cua editor duoc doi sang pixel anh goc tren tung truc de khop dung geometry.
         const points = this.toSvgPoints(pane.panePointsJson, input.width, input.height);
-        const opacity = Math.min(0.48, Math.max(0.12, product.tintStrength + product.reflectivityLevel * 0.12));
-        const shadowOpacity = Math.min(0.28, Math.max(0.04, product.shadowLevel));
+        const renderProfile = this.resolveRegionRenderProfile(region, product);
+        const opacity = Math.min(0.48, Math.max(0.12, renderProfile.tintStrength + renderProfile.reflectivityLevel * 0.12));
+        const shadowOpacity = Math.min(0.28, Math.max(0.04, renderProfile.shadowLevel));
 
         defs.push(
           `<clipPath id="${clipId}"><polygon points="${points}"/></clipPath>`,
@@ -806,6 +915,20 @@ export class ProjectsService {
       this.renderWatermark(input.copyrightText, input.width, input.height),
       `</svg>`,
     ].join('');
+  }
+
+  private resolveRegionRenderProfile(region: GlassRegion, product: GlassProduct): { tintStrength: number; reflectivityLevel: number; transmissionLevel: number; shadowLevel: number } {
+    // VI: Export uu tien percent da ap dung tren region; ban ghi cu fallback ve profile product de khong hong du lieu cu.
+    return {
+      tintStrength: this.percentToRatio(region.appliedTintPercent, product.tintStrength),
+      reflectivityLevel: this.percentToRatio(region.appliedReflectivityPercent, product.reflectivityLevel),
+      transmissionLevel: this.percentToRatio(region.appliedTransmissionPercent, product.transmissionLevel),
+      shadowLevel: this.percentToRatio(region.appliedShadowPercent, product.shadowLevel),
+    };
+  }
+
+  private percentToRatio(value: number | null | undefined, fallback: number): number {
+    return value === null || value === undefined ? fallback : Math.min(1, Math.max(0, value / 100));
   }
 
   private renderMaterialDetail(materialType: string, color: string, clipId: string, regionIndex: number, paneIndex: number, width: number, height: number): string {
@@ -1077,7 +1200,7 @@ export class ProjectsService {
   private async findRegion(projectId: number, imageId: number, regionId: number): Promise<GlassRegion> {
     const region = await this.regionsRepository.findOne({
       where: { id: regionId, projectId, projectImageId: imageId },
-      relations: { panes: true, glassProduct: { category: true } },
+      relations: { panes: true, renderPreset: true, glassProduct: { category: true, materialTypeConfig: true, renderPreset: true } },
       order: { panes: { sortOrder: 'ASC' } },
     });
 
@@ -1088,17 +1211,42 @@ export class ProjectsService {
     return region;
   }
 
+  private applyRenderDefaultsFromProduct(region: GlassRegion, product: GlassProduct): void {
+    // VI: Product goi y preset mac dinh; region luu percent da ap dung de cung product co the render khac theo ngu canh lap dat.
+    const suggestedPreset = product.renderPreset && product.renderPreset.isActive && !product.renderPreset.isArchived ? product.renderPreset : null;
+    if (suggestedPreset) {
+      this.applyRenderDefaultsFromPreset(region, suggestedPreset);
+      return;
+    }
+
+    region.appliedTintPercent = this.ratioToPercent(product.tintStrength);
+    region.appliedReflectivityPercent = this.ratioToPercent(product.reflectivityLevel);
+    region.appliedTransmissionPercent = this.ratioToPercent(product.transmissionLevel);
+    region.appliedShadowPercent = this.ratioToPercent(product.shadowLevel);
+  }
+
+  private applyRenderDefaultsFromPreset(region: GlassRegion, preset: GlassRenderPreset): void {
+    region.appliedTintPercent = preset.defaultTintPercent;
+    region.appliedReflectivityPercent = preset.defaultReflectivityPercent;
+    region.appliedTransmissionPercent = preset.defaultTransmissionPercent;
+    region.appliedShadowPercent = preset.defaultShadowPercent;
+  }
+
+  private ratioToPercent(value: number | null | undefined): number {
+    return Math.round(Math.min(1, Math.max(0, value ?? 0)) * 100);
+  }
+
   private async findActiveGlassProduct(productId: number): Promise<GlassProduct> {
     const product = await this.glassProductsRepository.findOne({
       where: { id: productId },
-      relations: { category: true },
+      relations: { category: true, materialTypeConfig: true, renderPreset: true },
     });
 
     if (!product) {
       throw new NotFoundException('Glass product was not found.');
     }
 
-    if (!product.isActive) {
+    if (!product.isActive || product.isArchived) {
       throw new BadRequestException('Glass product is not active.');
     }
 
@@ -1370,6 +1518,16 @@ export class ProjectsService {
     await this.removePublicUploadUrl(image.thumbnailUrl);
   }
 
+  private async removeExportFile(exportRecord: ProjectExport): Promise<void> {
+    try {
+      await this.removeStoredFile(this.resolveExportStorageKey(exportRecord.storageKey));
+    } catch (error) {
+      if (!(error instanceof BadRequestException)) {
+        throw error;
+      }
+    }
+  }
+
   private async removePublicUploadUrl(url: string | null): Promise<void> {
     if (!url?.startsWith('/uploads/')) {
       return;
@@ -1385,6 +1543,28 @@ export class ProjectsService {
       }
       throw error;
     }
+  }
+
+  private recordProjectAction(
+    user: JwtPayload,
+    action: string,
+    entityType: string,
+    entityId: number,
+    projectId: number,
+    imageId: number | null,
+    safeMessage: string,
+  ): Promise<void> {
+    // VI: Audit nghiep vu chi luu ID da duoc xac thuc va thong diep chung, khong luu storage key/DTO.
+    return this.auditLogService.recordAction({
+      actorUserId: user.sub,
+      actorRole: user.role,
+      action,
+      entityType,
+      entityId,
+      projectId,
+      imageId,
+      safeMessage,
+    });
   }
 
   private isExpectedAccessError(error: unknown): error is NotFoundException | ForbiddenException | BadRequestException {

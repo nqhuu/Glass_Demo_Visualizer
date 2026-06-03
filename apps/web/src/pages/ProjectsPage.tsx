@@ -1,4 +1,4 @@
-import { Archive, Edit3, FolderOpen, Plus, Search } from 'lucide-react';
+import { Archive, Edit3, FolderOpen, Plus, Search, Trash2 } from 'lucide-react';
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
@@ -7,7 +7,7 @@ import { SelectField, TextField } from '../catalog/CatalogFormFields';
 import { PageHeader } from '../components/PageHeader';
 import { ShellCard } from '../components/ShellCard';
 import { ProjectForm } from '../projects/ProjectForm';
-import { archiveProject, createProject, listProjects, updateProject } from '../projects/project-api';
+import { archiveProject, createProject, deleteProject, listProjects, updateProject } from '../projects/project-api';
 import type { Project, ProjectPayload, ProjectQuery, ProjectStatus } from '../projects/project.types';
 import { logSafeUiError } from '../utils/safe-log';
 
@@ -27,14 +27,20 @@ export function ProjectsPage() {
   const { t } = useTranslation();
   const { accessToken } = useAuth();
   const [projects, setProjects] = useState<Project[]>([]);
-  const [query, setQuery] = useState<ProjectQuery>({ search: '', status: 'all' });
+  const [query, setQuery] = useState<ProjectQuery>({ search: '', status: 'current' });
   const [form, setForm] = useState<ProjectPayload>(emptyProjectForm);
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [deletingProjectId, setDeletingProjectId] = useState<number | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
   const activeProjects = useMemo(() => projects.filter((project) => project.status !== 'archived'), [projects]);
+  // VI: Mac dinh an project da archive de danh sach lam viec chi hien du an hien hanh.
+  const visibleProjects = useMemo(
+    () => (query.status === 'current' ? projects.filter((project) => project.status !== 'archived') : projects),
+    [projects, query.status],
+  );
 
   const loadProjects = async () => {
     if (!accessToken) {
@@ -114,6 +120,29 @@ export function ProjectsPage() {
     }
   };
 
+  const handleDelete = async (project: Project) => {
+    if (!accessToken || !window.confirm(t('projects.messages.confirmDelete', { name: project.name }))) {
+      return;
+    }
+
+    try {
+      setDeletingProjectId(project.id);
+      await deleteProject(accessToken, project.id);
+      if (selectedProject?.id === project.id) {
+        setSelectedProject(null);
+        setForm(emptyProjectForm);
+      }
+      setProjects((current) => current.filter((item) => item.id !== project.id));
+      setMessage(t('projects.messages.deleted'));
+    } catch (error) {
+      // VI: UI chi ghi ID du an an toan, khong dump response hoac thong tin file da xoa.
+      logSafeUiError('ProjectsPage', 'handleDelete', 'Failed to delete project', error, { projectId: project.id });
+      setMessage(t('projects.messages.deleteFailed'));
+    } finally {
+      setDeletingProjectId(null);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -151,7 +180,8 @@ export function ProjectsPage() {
           <ShellCard>
             <div className="grid gap-3 md:grid-cols-[1fr_220px] md:items-end">
               <TextField label={t('projects.searchLabel')} value={query.search ?? ''} onChange={(search) => setQuery((current) => ({ ...current, search }))} />
-              <SelectField label={t('projects.fields.statusFilter')} value={query.status ?? 'all'} onChange={(status) => setQuery((current) => ({ ...current, status: status as ProjectStatus | 'all' }))}>
+              <SelectField label={t('projects.fields.statusFilter')} value={query.status ?? 'current'} onChange={(status) => setQuery((current) => ({ ...current, status: status as ProjectStatus | 'all' | 'current' }))}>
+                <option value="current">{t('projects.status.current')}</option>
                 <option value="all">{t('projects.status.all')}</option>
                 <option value="draft">{t('projects.status.draft')}</option>
                 <option value="active">{t('projects.status.active')}</option>
@@ -160,15 +190,22 @@ export function ProjectsPage() {
             </div>
             <div className="mt-4 flex items-center gap-2 text-sm text-neutral-600">
               <Search size={16} />
-              <span>{t('projects.summary', { count: projects.length, active: activeProjects.length })}</span>
+              <span>{t('projects.summary', { count: visibleProjects.length, active: activeProjects.length })}</span>
             </div>
           </ShellCard>
 
           {isLoading ? <ShellCard>{t('projects.messages.loading')}</ShellCard> : null}
-          {!isLoading && projects.length === 0 ? <ShellCard>{t('projects.messages.empty')}</ShellCard> : null}
+          {!isLoading && visibleProjects.length === 0 ? <ShellCard>{t('projects.messages.empty')}</ShellCard> : null}
           <div className="grid gap-4 lg:grid-cols-2">
-            {projects.map((project) => (
-              <ProjectCard key={project.id} project={project} onEdit={handleEdit} onArchive={handleArchive} />
+            {visibleProjects.map((project) => (
+              <ProjectCard
+                key={project.id}
+                project={project}
+                isDeleting={deletingProjectId === project.id}
+                onEdit={handleEdit}
+                onArchive={handleArchive}
+                onDelete={handleDelete}
+              />
             ))}
           </div>
         </div>
@@ -177,7 +214,19 @@ export function ProjectsPage() {
   );
 }
 
-function ProjectCard({ project, onEdit, onArchive }: { project: Project; onEdit: (project: Project) => void; onArchive: (project: Project) => void }) {
+function ProjectCard({
+  project,
+  isDeleting,
+  onEdit,
+  onArchive,
+  onDelete,
+}: {
+  project: Project;
+  isDeleting: boolean;
+  onEdit: (project: Project) => void;
+  onArchive: (project: Project) => void;
+  onDelete: (project: Project) => void;
+}) {
   const { t } = useTranslation();
   const imageCount = project.images?.length ?? 0;
 
@@ -189,7 +238,9 @@ function ProjectCard({ project, onEdit, onArchive }: { project: Project; onEdit:
             <p className="truncate text-lg font-semibold text-neutral-950">{project.name}</p>
             <p className="mt-1 text-sm text-neutral-600">{project.customerName || t('projects.noCustomer')}</p>
           </div>
-          <span className="rounded-md bg-stone-100 px-2 py-1 text-xs font-semibold text-neutral-700">{t(`projects.status.${project.status}`)}</span>
+          <span className={`rounded-md px-2 py-1 text-xs font-semibold ${project.status === 'archived' ? 'bg-orange-50 text-orange-700' : 'bg-stone-100 text-neutral-700'}`}>
+            {t(`projects.status.${project.status}`)}
+          </span>
         </div>
         <dl className="grid gap-2 text-sm text-neutral-700">
           <InfoRow label={t('projects.fields.code')} value={project.code || t('projects.emptyValue')} />
@@ -212,6 +263,15 @@ function ProjectCard({ project, onEdit, onArchive }: { project: Project; onEdit:
               {t('projects.actions.archive')}
             </button>
           ) : null}
+          <button
+            className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md border border-red-200 px-3 py-2 text-sm font-semibold text-red-700 disabled:opacity-60"
+            disabled={isDeleting}
+            type="button"
+            onClick={() => onDelete(project)}
+          >
+            <Trash2 size={16} />
+            {isDeleting ? t('projects.actions.deleting') : t('projects.actions.delete')}
+          </button>
         </div>
       </div>
     </ShellCard>

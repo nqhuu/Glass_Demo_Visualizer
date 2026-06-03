@@ -11,6 +11,7 @@ import { CreateProjectImageDto } from './dto/create-project-image.dto';
 import { CreateProjectDto } from './dto/create-project.dto';
 import { ListProjectsDto } from './dto/list-projects.dto';
 import { UpdateGlassRegionDto } from './dto/update-glass-region.dto';
+import { UpdateRegionRenderPresetDto } from './dto/update-region-render-preset.dto';
 import { UpdateProjectImageDto } from './dto/update-project-image.dto';
 import { UpdateProjectDto } from './dto/update-project.dto';
 import { UploadProjectImageDto } from './dto/upload-project-image.dto';
@@ -43,9 +44,15 @@ export class ProjectsController {
     return this.projectsService.updateProject(user, projectId, dto);
   }
 
-  @Delete(':projectId')
+  @Patch(':projectId/archive')
   archiveProject(@CurrentUser() user: JwtPayload, @Param('projectId', ParseIntPipe) projectId: number) {
     return this.projectsService.archiveProject(user, projectId);
+  }
+
+  @Delete(':projectId')
+  // VI: Xoa du an trong MVP la archive mem, service van kiem tra owner/admin truoc khi doi trang thai.
+  deleteProject(@CurrentUser() user: JwtPayload, @Param('projectId', ParseIntPipe) projectId: number) {
+    return this.projectsService.deleteProject(user, projectId);
   }
 
   @Get(':projectId/exports')
@@ -175,6 +182,18 @@ export class ProjectsController {
     @Param('regionId', ParseIntPipe) regionId: number,
   ) {
     return this.projectsService.clearRegionGlass(user, projectId, imageId, regionId);
+  }
+
+  @Patch(':projectId/images/:imageId/regions/:regionId/render-preset')
+  // VI: Doi preset render cho region da xac thuc; service ap dung percent allowlist tu preset admin.
+  updateRegionRenderPreset(
+    @CurrentUser() user: JwtPayload,
+    @Param('projectId', ParseIntPipe) projectId: number,
+    @Param('imageId', ParseIntPipe) imageId: number,
+    @Param('regionId', ParseIntPipe) regionId: number,
+    @Body() dto: UpdateRegionRenderPresetDto,
+  ) {
+    return this.projectsService.updateRegionRenderPreset(user, projectId, imageId, regionId, dto);
   }
 
   @Patch(':projectId/images/:imageId/regions/:regionId')

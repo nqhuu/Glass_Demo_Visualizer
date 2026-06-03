@@ -13,6 +13,7 @@ import { ProjectDetailPage } from './pages/ProjectDetailPage';
 import { ProjectsPage } from './pages/ProjectsPage';
 import { RegisterPage } from './pages/RegisterPage';
 import { ResetPasswordPage } from './pages/ResetPasswordPage';
+import { AuditLogsPage } from './pages/AuditLogsPage';
 
 // VI: Dinh nghia route Sprint 2 voi app shell duoc bao ve bang JWT.
 export default function App() {
@@ -51,6 +52,14 @@ export default function App() {
             element={
               <RequireRole allowedRoles={['admin']}>
                 <BrandingSettingsPage />
+              </RequireRole>
+            }
+          />
+          <Route
+            path="audit-logs"
+            element={
+              <RequireRole allowedRoles={['admin']}>
+                <AuditLogsPage />
               </RequireRole>
             }
           />

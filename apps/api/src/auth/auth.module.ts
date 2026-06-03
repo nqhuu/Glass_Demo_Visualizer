@@ -8,11 +8,13 @@ import { AuthService } from './auth.service';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { RolesGuard } from './guards/roles.guard';
+import { AuditLogModule } from '../audit/audit-log.module';
 
 // VI: Module xac thuc Sprint 1 gom login, JWT strategy va cac guard bao ve API.
 @Module({
   imports: [
     PassportModule.register({ defaultStrategy: 'jwt' }),
+    AuditLogModule,
     UsersModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],

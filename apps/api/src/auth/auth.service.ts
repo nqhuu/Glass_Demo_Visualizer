@@ -11,6 +11,8 @@ import { User } from '../users/user.entity';
 import { RegisterDto } from './dto/register.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
+import { AuditLogStatus } from '../audit/audit-log.entity';
+import { AuditLogService } from '../audit/audit-log.service';
 
 export interface ForgotPasswordResponse {
   message: string;
@@ -30,6 +32,7 @@ export class AuthService {
   constructor(
     private readonly jwtService: JwtService,
     private readonly usersService: UsersService,
+    private readonly auditLogService: AuditLogService,
   ) {}
 
   async login(loginDto: LoginDto): Promise<LoginResponse> {
@@ -38,6 +41,12 @@ export class AuthService {
       const passwordMatches = user ? await bcrypt.compare(loginDto.password, user.passwordHash) : false;
 
       if (!user || !passwordMatches) {
+        await this.auditLogService.recordAction({
+          action: 'auth.login.failure',
+          entityType: 'auth',
+          status: AuditLogStatus.Failure,
+          safeMessage: 'Login rejected.',
+        });
         this.logger.warn({
           module: 'AuthService',
           action: 'login',
@@ -51,6 +60,14 @@ export class AuthService {
         role: user.role,
       };
 
+      await this.auditLogService.recordAction({
+        actorUserId: user.id,
+        actorRole: user.role,
+        action: 'auth.login.success',
+        entityType: 'user',
+        entityId: user.id,
+        safeMessage: 'Login completed.',
+      });
       return {
         accessToken: await this.jwtService.signAsync(payload),
         user: toPublicUser(user),
@@ -88,6 +105,14 @@ export class AuthService {
       });
       const savedUser = await this.usersService.save(user);
 
+      await this.auditLogService.recordAction({
+        actorUserId: savedUser.id,
+        actorRole: savedUser.role,
+        action: 'auth.register.success',
+        entityType: 'user',
+        entityId: savedUser.id,
+        safeMessage: 'Registration completed.',
+      });
       return this.createLoginResponse(savedUser);
     } catch (error) {
       if (error instanceof ConflictException) {
@@ -130,6 +155,13 @@ export class AuthService {
         ...this.sanitizeErrorForLog(error),
       });
       return { message: genericMessage };
+    } finally {
+      // VI: Yeu cau reset luon duoc ghi cung thong diep chung, khong tiet lo email co ton tai hay khong.
+      await this.auditLogService.recordAction({
+        action: 'auth.password-reset.request',
+        entityType: 'auth',
+        safeMessage: 'Password reset request received.',
+      });
     }
   }
 
@@ -147,6 +179,14 @@ export class AuthService {
       user.passwordResetExpiresAt = null;
       await this.usersService.save(user);
 
+      await this.auditLogService.recordAction({
+        actorUserId: user.id,
+        actorRole: user.role,
+        action: 'auth.password-reset.success',
+        entityType: 'user',
+        entityId: user.id,
+        safeMessage: 'Password reset completed.',
+      });
       return { success: true };
     } catch (error) {
       if (error instanceof BadRequestException) {

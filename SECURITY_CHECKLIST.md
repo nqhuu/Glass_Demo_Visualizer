@@ -16,6 +16,11 @@
 - Production startup rejects missing or wildcard `CORS_ORIGIN`, missing database passwords, schema synchronization, and weak/placeholder JWT secrets.
 - Backend and frontend failure logging has been sanitized to avoid raw errors, payloads, query strings, tokens, hashes and filesystem paths.
 - Optional internal demo users and catalog records seed only in development when explicitly enabled; seeded passwords are hashed and public registration still cannot create admins.
+- Project deletion is ownership/admin checked and uses a soft archive path for MVP safety so protected images, regions, panes, and exports are not broken.
+- Admin-only audit history records safe action context for auth, projects/images, regions/glass, exports and catalog changes; audit writes never block the primary action.
+- Catalog products/categories use soft archive lifecycle for removal so existing region assignments and export history do not lose references.
+- Admin-managed material types and render presets are admin-only; normal users can only choose products/region presets through protected editor flows.
+- Region render preset updates verify project/image/region ownership and persist only allowlisted percentage defaults from admin-managed presets.
 
 ## Configuration
 
@@ -31,3 +36,5 @@
 - Project images still use local filesystem storage for the MVP; production deployment should later migrate storage to private object storage without changing protected ownership rules.
 - Public catalog textures remain local static-style assets for the MVP; object storage/CDN separation should preserve the catalog-only allowlist.
 - SMTP/password reset delivery remains pending; reset responses do not expose tokens.
+- Audit records are MVP application events, not tamper-proof compliance logs; production hardening should add durable retention and integrity controls.
+- Polygon multi-point editing is currently prepared in UI/data model only; rectangle/quadrilateral validation remains the active safe flow until pane/export support is expanded.

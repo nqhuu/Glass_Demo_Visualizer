@@ -2,6 +2,7 @@ import { Column, CreateDateColumn, Entity, JoinColumn, ManyToOne, OneToMany, Pri
 import { ProjectImage } from './project-image.entity';
 import { Project } from './project.entity';
 import { GlassProduct } from '../glass-catalog/glass-product.entity';
+import { GlassRenderPreset } from '../glass-catalog/glass-render-preset.entity';
 import { GlassRegionBoundaryType } from './enums/glass-region-boundary-type.enum';
 import { GlassRegionGridMode } from './enums/glass-region-grid-mode.enum';
 import { GlassRegionStatus } from './enums/glass-region-status.enum';
@@ -42,6 +43,25 @@ export class GlassRegion {
   @ManyToOne(() => GlassProduct, { nullable: true, onDelete: 'SET NULL' })
   @JoinColumn({ name: 'glass_product_id' })
   glassProduct!: GlassProduct | null;
+
+  @Column({ name: 'render_preset_id', type: 'int', nullable: true })
+  renderPresetId!: number | null;
+
+  @ManyToOne(() => GlassRenderPreset, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'render_preset_id' })
+  renderPreset!: GlassRenderPreset | null;
+
+  @Column({ name: 'applied_tint_percent', type: 'int', nullable: true })
+  appliedTintPercent!: number | null;
+
+  @Column({ name: 'applied_reflectivity_percent', type: 'int', nullable: true })
+  appliedReflectivityPercent!: number | null;
+
+  @Column({ name: 'applied_transmission_percent', type: 'int', nullable: true })
+  appliedTransmissionPercent!: number | null;
+
+  @Column({ name: 'applied_shadow_percent', type: 'int', nullable: true })
+  appliedShadowPercent!: number | null;
 
   @Column({ name: 'grid_mode', type: 'enum', enum: GlassRegionGridMode, default: GlassRegionGridMode.RowsColumns })
   gridMode!: GlassRegionGridMode;

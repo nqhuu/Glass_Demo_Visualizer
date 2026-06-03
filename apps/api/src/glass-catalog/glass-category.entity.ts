@@ -19,6 +19,9 @@ export class GlassCategory {
   @Column({ name: 'is_active', default: true })
   isActive!: boolean;
 
+  @Column({ name: 'is_archived', default: false })
+  isArchived!: boolean;
+
   @Column({ name: 'sort_order', default: 0 })
   sortOrder!: number;
 

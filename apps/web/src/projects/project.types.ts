@@ -1,4 +1,4 @@
-import type { GlassProduct } from '../catalog/glass-catalog.types';
+import type { GlassProduct, GlassRenderPreset } from '../catalog/glass-catalog.types';
 
 // VI: Kieu du lieu frontend cho project/image/region; Sprint 9 region co the gan mot mau kinh active.
 export type ProjectStatus = 'draft' | 'active' | 'archived';
@@ -100,7 +100,7 @@ export interface ProjectImageUploadDraft {
 
 export interface ProjectQuery {
   search?: string;
-  status?: ProjectStatus | 'all';
+  status?: ProjectStatus | 'all' | 'current';
 }
 
 export interface GlassRegionPane {
@@ -124,6 +124,12 @@ export interface GlassRegion {
   boundaryPointsJson: NormalizedPoint[];
   glassProductId: number | null;
   glassProduct: GlassProduct | null;
+  renderPresetId: number | null;
+  renderPreset: GlassRenderPreset | null;
+  appliedTintPercent: number | null;
+  appliedReflectivityPercent: number | null;
+  appliedTransmissionPercent: number | null;
+  appliedShadowPercent: number | null;
   gridMode: GlassRegionGridMode;
   rows: number | null;
   columns: number | null;
@@ -151,4 +157,8 @@ export interface UpdateGlassRegionPayload {
   rows?: number;
   columns?: number;
   sortOrder?: number;
+}
+
+export interface UpdateRegionRenderPresetPayload {
+  renderPresetId: number | null;
 }

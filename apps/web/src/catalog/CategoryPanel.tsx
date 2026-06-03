@@ -1,4 +1,4 @@
-import { Edit2, Plus, Trash2, X } from 'lucide-react';
+import { Archive, Edit2, Plus, Power, RotateCcw, X } from 'lucide-react';
 import type { FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ShellCard } from '../components/ShellCard';
@@ -10,6 +10,7 @@ export interface CategoryFormState {
   slug: string;
   description: string;
   isActive: boolean;
+  isArchived: boolean;
   sortOrder: number;
 }
 
@@ -22,7 +23,9 @@ export function CategoryPanel({
   onSubmit,
   onChange,
   onEdit,
+  onToggleActive,
   onDelete,
+  onRestore,
   onCancel,
 }: {
   categories: GlassCategory[];
@@ -32,7 +35,9 @@ export function CategoryPanel({
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   onChange: (value: CategoryFormState) => void;
   onEdit: (category: GlassCategory) => void;
+  onToggleActive: (category: GlassCategory) => void;
   onDelete: (category: GlassCategory) => void;
+  onRestore: (category: GlassCategory) => void;
   onCancel: () => void;
 }) {
   const { t } = useTranslation();
@@ -71,15 +76,28 @@ export function CategoryPanel({
           <div key={category.id} className="flex items-center justify-between gap-3 rounded-md border border-neutral-200 bg-stone-50 px-3 py-2">
             <div className="min-w-0">
               <p className="truncate text-sm font-semibold text-neutral-900">{category.name}</p>
-              <p className="truncate text-xs text-neutral-500">{category.slug}</p>
+              <p className="truncate text-xs text-neutral-500">
+                {category.slug} - {t(`catalog.status.${category.isArchived ? 'archived' : category.isActive ? 'active' : 'inactive'}`)}
+              </p>
             </div>
             <div className="flex gap-1">
               <button className="rounded-md border border-neutral-300 p-2 text-neutral-700" type="button" onClick={() => onEdit(category)} aria-label={t('catalog.actions.edit')}>
                 <Edit2 size={15} />
               </button>
-              <button className="rounded-md border border-red-200 p-2 text-brand-red" type="button" onClick={() => onDelete(category)} aria-label={t('catalog.actions.delete')}>
-                <Trash2 size={15} />
-              </button>
+              {category.isArchived ? (
+                <button className="rounded-md border border-neutral-300 p-2 text-neutral-700" type="button" onClick={() => onRestore(category)} aria-label={t('catalog.actions.restore')}>
+                  <RotateCcw size={15} />
+                </button>
+              ) : (
+                <>
+                  <button className="rounded-md border border-neutral-300 p-2 text-neutral-700" type="button" onClick={() => onToggleActive(category)} aria-label={t(category.isActive ? 'catalog.actions.deactivate' : 'catalog.actions.reactivate')}>
+                    <Power size={15} />
+                  </button>
+                  <button className="rounded-md border border-red-200 p-2 text-brand-red" type="button" onClick={() => onDelete(category)} aria-label={t('catalog.actions.archive')}>
+                    <Archive size={15} />
+                  </button>
+                </>
+              )}
             </div>
           </div>
         ))}

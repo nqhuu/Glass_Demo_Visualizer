@@ -1,4 +1,4 @@
-import { IsBoolean, IsEnum, IsHexColor, IsInt, IsNumber, IsOptional, IsString, Length, Max, Min, ValidateIf } from 'class-validator';
+import { IsBoolean, IsEnum, IsHexColor, IsInt, IsOptional, IsString, Length, Max, Min, ValidateIf } from 'class-validator';
 import { Type } from 'class-transformer';
 import { GlassMaterialType } from '../enums/glass-material-type.enum';
 import { GlassRealismPreset } from '../enums/glass-realism-preset.enum';
@@ -29,35 +29,49 @@ export class CreateGlassProductDto {
   @IsEnum(GlassMaterialType)
   materialType!: GlassMaterialType;
 
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null)
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  materialTypeId?: number | null;
+
   @IsHexColor()
   baseColor!: string;
 
   @Type(() => Number)
-  @IsNumber()
+  @IsInt()
   @Min(0)
-  @Max(1)
+  @Max(100)
   tintStrength!: number;
 
   @Type(() => Number)
-  @IsNumber()
+  @IsInt()
   @Min(0)
-  @Max(1)
+  @Max(100)
   reflectivityLevel!: number;
 
   @Type(() => Number)
-  @IsNumber()
+  @IsInt()
   @Min(0)
-  @Max(1)
+  @Max(100)
   transmissionLevel!: number;
 
   @Type(() => Number)
-  @IsNumber()
+  @IsInt()
   @Min(0)
-  @Max(1)
+  @Max(100)
   shadowLevel!: number;
 
   @IsEnum(GlassRealismPreset)
   realismPreset!: GlassRealismPreset;
+
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null)
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  renderPresetId?: number | null;
 
   @IsOptional()
   // VI: Null/chuoi trong xoa URL; URL co gia tri chi duoc dung HTTP(S) hoac asset catalog an toan.
@@ -73,6 +87,10 @@ export class CreateGlassProductDto {
   @IsOptional()
   @IsBoolean()
   isActive?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  isArchived?: boolean;
 
   @IsOptional()
   @Type(() => Number)
